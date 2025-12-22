@@ -1,0 +1,8 @@
+{
+  "name": "AI Advisor Pro",
+  "description": "Hệ thống AI tư vấn bất động sản chuyên nghiệp cho dự án Vinhomes Grand Park, hỗ trợ tư vấn 24/7, báo giá sơ bộ và chuyển đổi khách hàng tiềm năng.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
+}
