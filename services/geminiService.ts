@@ -1,550 +1,500 @@
 
-import { GoogleGenAI, Type, FunctionDeclaration, Modality, GenerateContentResponse } from "@google/genai";
-import { SYSTEM_INSTRUCTION, BANK_DATA } from "../constants";
-import { Lead, MarketData, MacroData, MarketIntel, UserProfile } from "../types";
+import { GoogleGenAI, Type, FunctionDeclaration, Schema, GenerateContentResponse } from "@google/genai";
+import { UserProfile, TenantProfile, Message, Lead, MarketIntel, SwarmStep, AgentRole } from "../types";
+import { dataService } from "./dataService";
 
-// Initialize the API client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// --- REQUEST DEDUPLICATION (PREVENTS DOUBLE-FIRING) ---
-// Maps a unique key to a pending promise. If a request is already in flight, reuse it.
-const inflightRequests = new Map<string, Promise<any>>();
-
-async function dedupedRequest<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    if (inflightRequests.has(key)) {
-        // console.log(`[Dedup] Reusing in-flight request for: ${key}`);
-        return inflightRequests.get(key);
-    }
-
-    const promise = fn().finally(() => {
-        // Clear the promise from cache once it resolves or rejects
-        // Small delay to ensure React StrictMode double-invocations catch the same promise
-        setTimeout(() => inflightRequests.delete(key), 500); 
-    });
-
-    inflightRequests.set(key, promise);
-    return promise;
-}
-
-// --- CIRCUIT BREAKER STATE & OBSERVER ---
-let isGlobalRateLimited = false;
-let rateLimitResetTime = 0;
-type RateLimitListener = (isLimited: boolean) => void;
-const listeners: RateLimitListener[] = [];
-
-export const subscribeToRateLimit = (listener: RateLimitListener) => {
-    listeners.push(listener);
-    listener(isGlobalRateLimited); // Initial call
-    return () => {
-        const idx = listeners.indexOf(listener);
-        if (idx > -1) listeners.splice(idx, 1);
-    };
-};
-
-const notifyListeners = () => {
-    listeners.forEach(l => l(isGlobalRateLimited));
-};
-
-const checkCircuitBreaker = () => {
-    if (isGlobalRateLimited) {
-        if (Date.now() < rateLimitResetTime) {
-            return true; // Circuit is open (blocked)
-        } else {
-            // Cooldown over, try to reset
-            isGlobalRateLimited = false;
-            notifyListeners(); 
-            return false;
-        }
-    }
-    return false;
-};
-
-const activateCircuitBreaker = () => {
-    if (!isGlobalRateLimited) {
-        console.warn("⚡ Circuit Breaker Activated: Switching to offline mode for 60s.");
-        isGlobalRateLimited = true;
-        rateLimitResetTime = Date.now() + 60000; // 1 minute cooldown
-        notifyListeners();
-        
-        // Auto-attempt reset after 60s
-        setTimeout(() => {
-            if (isGlobalRateLimited) {
-                isGlobalRateLimited = false;
-                notifyListeners();
-                console.log("⚡ Circuit Breaker Reset: Trying online mode again.");
-            }
-        }, 60000);
-    }
-};
-
-// --- HELPER: RETRY LOGIC FOR 429 ERRORS ---
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-export async function withRetry<T>(fn: () => Promise<T>, retries = 2, baseDelay = 3000): Promise<T> {
-    // 1. Check Circuit Breaker before attempting
-    if (checkCircuitBreaker()) {
-        throw new Error("Quota exceeded (Circuit Breaker Active).");
-    }
-
+// UTILS: Retry Mechanism for Resilience
+const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
     try {
         return await fn();
-    } catch (error) {
-        if (isQuotaExceeded(error)) {
-            if (retries > 0) {
-                // console.warn(`[429] Quota exceeded. Retrying in ${baseDelay}ms...`);
-                await delay(baseDelay);
-                return withRetry(fn, retries - 1, baseDelay * 2);
-            } else {
-                // All retries failed -> Activate Circuit Breaker
-                activateCircuitBreaker();
-            }
+    } catch (error: any) {
+        if (retries === 0) throw error;
+        const code = error?.status || error?.response?.status;
+        const msg = error?.message || '';
+        if (!code || (code >= 500 && code < 600) || msg.includes('xhr') || msg.includes('fetch') || msg.includes('Rpc failed')) {
+            console.warn(`API Error (${code || 'Network'}), retrying in ${delay}ms...`, error);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return withRetry<T>(fn, retries - 1, delay * 2);
         }
         throw error;
     }
-}
-
-export const isQuotaExceeded = (error: any) => {
-    // Check for direct status/code properties
-    if (error?.status === 429 || error?.code === 429) return true;
-    
-    // Check for the specific error structure provided: {"error":{"code":429...}}
-    if (error?.error?.code === 429 || error?.error?.status === 'RESOURCE_EXHAUSTED') return true;
-
-    const msg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
-    return msg.includes('429') || msg.includes('Quota exceeded') || msg.includes('RESOURCE_EXHAUSTED');
 };
 
-// --- CACHING UTILITIES ---
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes in milliseconds
-
-const getCachedData = <T>(key: string): T | null => {
-    try {
-        const item = localStorage.getItem(key);
-        if (!item) return null;
-        const parsed = JSON.parse(item);
-        const now = new Date().getTime();
-        // Check TTL
-        if (now - parsed.timestamp < CACHE_TTL) {
-            return parsed.data;
+// --- TOOL DEFINITIONS ---
+export const tools: FunctionDeclaration[] = [
+    {
+        name: "show_valuation",
+        description: "Định giá BĐS chi tiết. Gọi khi khách hỏi: giá bao nhiêu, định giá, đắt hay rẻ.",
+        parameters: { 
+            type: Type.OBJECT, 
+            properties: { 
+                projectId: { type: Type.STRING, description: "ID dự án" },
+                address: { type: Type.STRING, description: "Địa chỉ BĐS" }
+            } 
         }
-        localStorage.removeItem(key); // Expired
-        return null;
-    } catch (e) {
-        return null;
-    }
-};
-
-const setCachedData = (key: string, data: any, ttl = CACHE_TTL) => {
-    try {
-        const payload = {
-            data: data,
-            timestamp: new Date().getTime()
-        };
-        localStorage.setItem(key, JSON.stringify(payload));
-    } catch (e) {
-        console.warn("LocalStorage full or disabled");
-    }
-};
-
-const handoffTool: FunctionDeclaration = {
-  name: "handoffToSales",
-  description: "Triggers when the user provides their contact information (Name and Phone Number) for sales consultation.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      customerName: { type: Type.STRING, description: "Customer's name" },
-      phone: { type: Type.STRING, description: "Customer's phone number (must be valid VN phone)" },
-      projectInterest: { type: Type.STRING, description: "Project they are interested in" },
-      budget: { type: Type.STRING, description: "Their budget range" },
-      notes: { type: Type.STRING, description: "Other notes or needs" },
     },
-    required: ["customerName", "phone"],
+    {
+        name: "show_comparison",
+        description: "So sánh 2-3 dự án. Gọi khi khách phân vân, so sánh A và B.",
+        parameters: { type: Type.OBJECT, properties: { projectIds: { type: Type.ARRAY, items: { type: Type.STRING } } } } 
+    },
+    {
+        name: "show_feng_shui",
+        description: "Xem phong thủy. Gọi khi khách hỏi hướng, tuổi, mệnh.",
+        parameters: { type: Type.OBJECT, properties: { birthYear: { type: Type.NUMBER } }, required: ["birthYear"] }
+    },
+    {
+        name: "show_market_forecast",
+        description: "Dự báo tăng giá. Gọi khi khách hỏi tiềm năng, tương lai, quy hoạch.",
+        parameters: { type: Type.OBJECT, properties: { projectId: { type: Type.STRING } } }
+    },
+    {
+        name: "show_legal",
+        description: "Show hồ sơ pháp lý. Gọi khi khách hỏi sổ hồng, pháp lý, giấy phép.",
+        parameters: { type: Type.OBJECT, properties: { projectId: { type: Type.STRING } }, required: ["projectId"] }
+    },
+    {
+        name: "show_finance",
+        description: "Bài toán dòng tiền/Lợi nhuận. Gọi khi khách hỏi lợi nhuận, cho thuê, yield.",
+        parameters: { type: Type.OBJECT, properties: { projectId: { type: Type.STRING } } }
+    },
+    {
+        name: "show_strategy",
+        description: "Tư vấn chiến lược đầu tư.",
+        parameters: { type: Type.OBJECT, properties: {} }
+    },
+    {
+        name: "show_calculator",
+        description: "Tính vay ngân hàng. Gọi khi khách hỏi vay, trả góp, lãi suất.",
+        parameters: { type: Type.OBJECT, properties: { initialPrice: { type: Type.NUMBER } } }
+    },
+    {
+        name: "show_lead_magnet",
+        description: "Tặng tài liệu/Bảng giá gốc. Gọi khi khách quan tâm sâu hoặc hỏi bảng giá chi tiết.",
+        parameters: { type: Type.OBJECT, properties: { documentType: { type: Type.STRING } } }
+    },
+    {
+        name: "show_project_info",
+        description: "Hiển thị thông tin/Hình ảnh dự án. Gọi khi khách muốn xem ảnh, tiện ích, vị trí.",
+        parameters: { type: Type.OBJECT, properties: { projectId: { type: Type.STRING } }, required: ["projectId"] }
+    },
+    {
+        name: "show_bank_rates",
+        description: "Bảng lãi suất ngân hàng. Gọi khi hỏi lãi suất.",
+        parameters: { type: Type.OBJECT, properties: {} }
+    },
+    {
+        name: "remember_preference",
+        description: "!!! QUAN TRỌNG: Ghi nhớ sở thích/thông tin quan trọng của khách hàng vào Bộ Nhớ Dài Hạn. Gọi NGAY LẬP TỨC khi khách chia sẻ thông tin cá nhân (VD: 'Anh ghét nắng chiều', 'Chị thích tầng cao', 'Nhà có 2 con').",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                key: { type: Type.STRING, description: "Từ khóa ngắn gọn (VD: 'hated_direction', 'family_size', 'risk_appetite')" },
+                value: { type: Type.STRING, description: "Chi tiết thông tin (VD: 'Ghét hướng Tây vì nóng', '2 vợ chồng + 2 con')" },
+                confidence: { type: Type.NUMBER, description: "Độ tin cậy (0.1 - 1.0). Nếu khách nói rõ ràng thì là 1.0" }
+            },
+            required: ["key", "value"]
+        }
+    }
+];
+
+// --- HELPER: CONTEXT BUILDERS ---
+const getTargetProjectContext = (projectId: string | null) => {
+    if (!projectId) return "";
+    const project = dataService.getProjectById(projectId);
+    if (!project) return "";
+
+    return `
+[DỮ LIỆU DỰ ÁN ĐANG TƯ VẤN - ƯU TIÊN SỐ 1]:
+- Tên: ${project.name} (${project.status})
+- Vị trí: ${project.location}
+- Giá tham khảo: ${project.priceRange}
+- Chủ đầu tư: ${project.developer}
+- Pháp lý hiện tại: ${project.legalStatus} (Điểm pháp lý: ${project.richDetails?.legalScore}/100)
+- Chính sách thanh toán: ${project.paymentSchedule}
+- Tỷ suất cho thuê (Yield): ${project.richDetails?.marketAnalysis?.yield}
+- Dự báo tăng giá: ${project.richDetails?.marketAnalysis?.forecast}
+- Ngân hàng hỗ trợ: ${project.richDetails?.finance?.bankSupport}
+- Điểm yếu (Rủi ro): ${project.richDetails?.marketAnalysis?.risks?.join(', ')}
+- Điểm mạnh (Cơ hội): ${project.richDetails?.marketAnalysis?.opportunities?.join(', ')}
+
+[CHỈ THỊ ĐẶC BIỆT]:
+Khi khách hỏi về dự án này, HÃY DÙNG CÁC SỐ LIỆU TRÊN ĐỂ TRẢ LỜI. KHÔNG ĐƯỢC BỊA ĐẶT.
+Nếu khách hỏi về hình ảnh, hãy gọi tool 'show_project_info'.
+Nếu khách hỏi pháp lý, hãy gọi tool 'show_legal'.
+`;
+};
+
+const getKnowledgeBaseContext = () => {
+    const docs = dataService.getDocuments();
+    if (docs.length === 0) return "";
+    return `
+[THÔNG TIN TỪ TÀI LIỆU NỘI BỘ (ĐÃ UPLOAD)]:
+${docs.map(d => `--- FILE: "${d.name}" ---\n${(d as any).content || "Nội dung đang được xử lý..."}`).join('\n')}
+`;
+};
+
+// 🔥 UPDATED: ADAPTIVE CONTEXT BUILDER 🔥
+const getAdaptiveContext = (userProfile?: UserProfile | null) => {
+    let adaptationContext = "";
+    
+    // Attempt to find lead in DB to get RICH context (Memory + Psychology)
+    const leads = dataService.getAllLeadsRaw();
+    // Match by Name/Phone if UserProfile provided, otherwise fallback to most recent/seed for demo
+    const matchedLead = userProfile 
+        ? leads.find(l => l.name === userProfile.name || l.phone === userProfile.phone)
+        : leads[0]; // Fallback for seamless demo experience
+
+    if (matchedLead) {
+        adaptationContext += `[KHÁCH HÀNG HIỆN TẠI]: ${matchedLead.name} (${matchedLead.phone || 'Chưa có SĐT'})\n`;
+        
+        if (matchedLead.psychology) {
+            const psy = matchedLead.psychology;
+            adaptationContext += `
+[HỒ SƠ TÂM LÝ KHÁCH HÀNG (DISC - ${psy.discType})]:
+- Phong cách giao tiếp: ${psy.communicationStyle === 'brief' ? 'Ngắn gọn, đi thẳng vào vấn đề (D/C)' : 'Chi tiết, nhẹ nhàng, kể chuyện (I/S)'}.
+- Khẩu vị rủi ro: ${psy.riskTolerance}.
+- Nỗi đau (Pain Points): ${psy.painPoints.join(', ')}.
+-> HÃY ĐIỀU CHỈNH GIỌNG VĂN (TONE) THEO HỒ SƠ NÀY.
+`;
+        }
+        if (matchedLead.longTermMemory && matchedLead.longTermMemory.length > 0) {
+            adaptationContext += `
+[BỘ NHỚ DÀI HẠN (ĐIỀU KHÁCH ĐÃ TỪNG NÓI)]:
+${matchedLead.longTermMemory.map(m => `- ${m.key}: ${m.value}`).join('\n')}
+-> HÃY DÙNG THÔNG TIN NÀY ĐỂ CÁ NHÂN HÓA. ĐỪNG HỎI LẠI NHỮNG GÌ KHÁCH ĐÃ NÓI.
+`;
+        }
+    }
+    
+    return adaptationContext;
+};
+
+// --- CORE SYSTEM INSTRUCTION BUILDER ---
+const buildSystemInstruction = (agentName: string, contextBlocks: string[], isVoiceMode: boolean = false) => {
+    return `
+ROLE: Bạn là ${agentName}, Chuyên gia tư vấn BĐS hàng đầu. Phong cách: Chuyên nghiệp, Sắc sảo, Dựa trên số liệu.
+MODE: ${isVoiceMode ? 'GIAO TIẾP GIỌNG NÓI (VOICE)' : 'CHAT VĂN BẢN (TEXT)'}
+
+${isVoiceMode ? 
+`[QUY TẮC VOICE CHAT]:
+1. Trả lời NGẮN GỌN (dưới 3 câu). Văn nói tự nhiên như người Việt.
+2. Đi thẳng vào vấn đề. Không liệt kê dài dòng.
+3. Nếu cần show hình ảnh/bảng tính, hãy gọi tool tương ứng và nói "Em gửi anh chị xem trên màn hình ạ".
+4. TẬN DỤNG KÝ ỨC: Nếu khách đã nói ghét hướng Tây, ĐỪNG bao giờ mời chào hướng Tây.` 
+: 
+`[QUY TẮC TEXT CHAT]:
+1. Trình bày rõ ràng, dùng Markdown (Bold, List) để dễ đọc.
+2. Phân tích chi tiết, đa chiều.`}
+
+!!! GIAO THỨC XỬ LÝ SỐ ĐIỆN THOẠI/LIÊN HỆ (ƯU TIÊN TỐI THƯỢNG) !!!
+Nếu khách đưa SỐ ĐIỆN THOẠI: Dừng bán hàng. Xác nhận đã nhận và hứa liên hệ lại.
+
+!!! GIAO THỨC MEMORY HOOK !!!
+Nếu khách chia sẻ thông tin cá nhân (sở thích, gia đình, ghét/thích), GỌI NGAY tool 'remember_preference'.
+
+[CONTEXT DỮ LIỆU]:
+${contextBlocks.join('\n')}
+`;
+};
+
+// --- PUBLIC EXPORTS ---
+
+export const getLiveSystemInstruction = (userProfile?: UserProfile | null) => {
+    const liveData = dataService.getLiveMarketContext();
+    const adaptiveContext = getAdaptiveContext(userProfile); // Fetch Memory & Psychology
+
+    return buildSystemInstruction(
+        "Advisor", 
+        [
+            `[THỊ TRƯỜNG]: Vàng ${liveData.gold}, Lãi suất ${liveData.rates.floating}`,
+            adaptiveContext // INJECTED MEMORY FOR VOICE
+        ], 
+        true
+    );
+};
+
+export const createChatSession = (
+    userProfile?: UserProfile | null, 
+    tenant?: TenantProfile | null, 
+    previousMessages: Message[] = [], 
+    targetProject?: string | null,
+    trafficSource?: string,
+    useThinkingMode: boolean = true
+) => {
+  const ai = getAI();
+  const agentName = tenant?.name || "BDS Advisor";
+  
+  const liveData = dataService.getLiveMarketContext();
+  const projectContext = getTargetProjectContext(targetProject);
+  const docContext = getKnowledgeBaseContext();
+  const adaptationContext = getAdaptiveContext(userProfile);
+  
+  const marketContext = `
+[THỊ TRƯỜNG VĨ MÔ HIỆN TẠI - ${liveData.timestamp}]:
+- Lãi suất thả nổi: ${liveData.rates.floating}.
+- Vàng: ${liveData.gold} | USD: ${liveData.usd}.
+- Pháp lý: ${liveData.legal}.
+`;
+
+  let sourceContext = "";
+  if (trafficSource) {
+      if (trafficSource.includes('facebook') || trafficSource.includes('tiktok')) sourceContext = `[NGUỒN KHÁCH: MXH] -> Thích hình ảnh, cảm xúc.`;
+      else if (trafficSource.includes('google')) sourceContext = `[NGUỒN KHÁCH: TÌM KIẾM] -> Thích số liệu, phân tích.`;
+  }
+
+  const fullInstruction = buildSystemInstruction(
+      agentName, 
+      [projectContext, docContext, adaptationContext, marketContext, sourceContext], 
+      false
+  );
+
+  const history = previousMessages
+      .filter(msg => msg.text || msg.toolPayload)
+      .slice(-20) 
+      .map((msg) => ({
+          role: msg.role,
+          parts: [{ text: msg.text + (msg.toolPayload ? `\n[SYSTEM_LOG: Đã hiển thị Widget ${msg.toolPayload.type}]` : '') }]
+      }));
+
+  const modelName = useThinkingMode ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+  // Use Thinking Config for complex tasks
+  const thinkingConfig = useThinkingMode ? { thinkingBudget: 16384 } : undefined;
+
+  return ai.chats.create({
+    model: modelName,
+    history: history,
+    config: {
+      systemInstruction: fullInstruction,
+      temperature: 0.3, 
+      thinkingConfig: thinkingConfig, 
+      tools: [
+          { functionDeclarations: tools },
+          { googleSearch: {} }
+      ],
+    },
+  });
+};
+
+// 🔥 UPDATED: MULTI-AGENT SWARM WITH WATERFALL CONTEXT FLOW 🔥
+export const runAgentSwarm = async (lead: Lead, onStep: (step: SwarmStep) => void): Promise<string> => {
+    const ai = getAI();
+    const liveContext = dataService.getLiveMarketContext();
+    const contextStr = `${lead.needs} ${lead.projectInterest} ${lead.budget} ${lead.psychology?.painPoints?.join(' ')}`.toLowerCase();
+    
+    // --- STEP 0: FETCH REAL PROJECT DATA ---
+    let projectContext = "Không có dữ liệu dự án cụ thể. Hãy tư vấn chung.";
+    let project = null;
+    const allProjects = dataService.getProjects();
+    
+    if (lead.projectInterest) {
+        project = allProjects.find(p => lead.projectInterest.toLowerCase().includes(p.name.toLowerCase()));
+    }
+    
+    if (project) {
+        projectContext = `
+        DỰ ÁN: ${project.name}
+        - Giá: ${project.priceRange}
+        - Pháp lý: ${project.legalStatus} (Điểm: ${project.richDetails?.legalScore}/100)
+        - Ưu điểm: ${project.highlight}
+        - Yield cho thuê: ${project.richDetails?.marketAnalysis?.yield}
+        - Đối thủ: ${project.richDetails?.marketAnalysis?.competitors.join(', ')}
+        - Điểm yếu (Rủi ro): ${project.richDetails?.marketAnalysis?.risks?.join(', ')}
+        `;
+    }
+
+    // --- AGENT SELECTION LOGIC ---
+    const activeAgents: {role: AgentRole, name: string, task: string, icon: string}[] = [];
+
+    // LEVEL 1: PROFILING (INPUT ANALYSIS)
+    if (lead.longTermMemory && lead.longTermMemory.length > 0) {
+        const memories = lead.longTermMemory.map(m => `"${m.key}: ${m.value}"`).join(', ');
+        activeAgents.push({
+            role: 'Profiler', name: "Chuyên Gia Hồ Sơ",
+            task: `Quét ký ức khách hàng (${memories}). Phát hiện mâu thuẫn hoặc điểm phù hợp đặc biệt giữa nhu cầu cũ và dự án hiện tại ${project?.name || 'này'}.`,
+            icon: "Fingerprint"
+        });
+    }
+
+    // LEVEL 2: HARD ANALYSIS (FACT CHECKING)
+    const budgetNum = parseInt(lead.budget.replace(/\D/g, ''));
+    if (lead.userType === 'enterprise' || (budgetNum > 10 && lead.budget.includes('Tỷ'))) {
+        activeAgents.push({
+            role: 'WealthStructurer', name: "Kỹ Sư Tài Chính",
+            task: `Khách hàng VIP. Đề xuất cấu trúc vốn: Đòn bẩy tối ưu, Khấu trừ thuế, hoặc Dòng tiền kép.`,
+            icon: "Landmark"
+        });
+    }
+
+    if (project?.priceRange.includes('100') || contextStr.includes('cao cấp') || contextStr.includes('hạng sang')) {
+        activeAgents.push({
+            role: 'Curator', name: "Người Tuyển Chọn",
+            task: `Phân tích tệp cư dân và vị thế xã hội. Tại sao dự án này là biểu tượng của sự thành đạt?`,
+            icon: "Crown"
+        });
+    }
+
+    activeAgents.push({
+        role: 'TimingArchitect', name: "Kiến Trúc Sư Thời Điểm",
+        task: `Trả lời câu hỏi: "Tại sao phải mua NGAY BÂY GIỜ?". Kết hợp vĩ mô (${liveContext.infra}) để tạo tính cấp thiết.`,
+        icon: "Hourglass"
+    });
+
+    if (contextStr.includes('giá') || contextStr.includes('tỷ') || !!lead.budget) {
+        const budgetStatus = lead.budget ? `Khách có ngân sách ${lead.budget}.` : "Chưa rõ ngân sách.";
+        activeAgents.push({ 
+            role: 'Valuation', name: "Chuyên Gia Định Giá", 
+            task: `So sánh giá dự án (${project?.priceRange}) với ngân sách khách (${budgetStatus}). Đánh giá đắt/rẻ.`, 
+            icon: "Tag" 
+        });
+    }
+
+    if (lead.psychology?.riskTolerance === 'low' || contextStr.includes('rủi ro')) {
+        activeAgents.push({ 
+            role: 'Skeptic', name: "Người Phản Biện", 
+            task: `Đóng vai người mua khó tính. Tìm ra 1 rủi ro thực tế của dự án để tạo sự tin tưởng (Radical Candor).`, 
+            icon: "ShieldAlert" 
+        });
+    } else if (contextStr.includes('pháp lý')) {
+        activeAgents.push({ 
+            role: 'RiskOfficer', name: "Kiểm Soát Pháp Lý", 
+            task: `Rà soát pháp lý: ${project?.legalStatus}. Xác nhận an toàn.`, 
+            icon: "Scale" 
+        });
+    }
+
+    if (contextStr.includes('đầu tư') || contextStr.includes('lời') || lead.purpose === 'đầu tư') {
+        activeAgents.push({ 
+            role: 'Strategist', name: "Hoạch Định Chiến Lược", 
+            task: `Phân tích bài toán đầu tư: Lãi vốn vs Dòng tiền. So sánh với đối thủ.`, 
+            icon: "LineChart" 
+        });
+    }
+
+    // LEVEL 3: SOFT ANALYSIS (EMOTIONAL CONNECTION)
+    if (contextStr.match(/(con|trường|học|gym|spa|bơi|sống|ở|gia đình|vợ chồng)/)) {
+        activeAgents.push({
+            role: 'Lifestyle', name: "Kiến Trúc Sư Lối Sống",
+            task: `Vẽ ra viễn cảnh sống tại ${project?.name} dựa trên nhu cầu "${lead.needs}". Tập trung vào cảm xúc.`,
+            icon: "Coffee"
+        });
+    }
+
+    activeAgents.push({ 
+        role: 'Closer', name: "Chuyên Gia Chốt Deal", 
+        task: `Đưa ra Call-to-Action (CTA) dựa trên trạng thái khách (${lead.status}).`, 
+        icon: "Target" 
+    });
+
+    // LEVEL 4: SYNTHESIS (OUTPUT)
+    activeAgents.push({
+        role: 'Storyteller', name: "Người Kể Chuyện",
+        task: "Tổng hợp tất cả dữ liệu thành kịch bản hội thoại tự nhiên, có cảm xúc.",
+        icon: "PenTool"
+    });
+
+    // SORTING LOGIC: Profiler -> Analysts -> Strategists -> Storyteller
+    const discType = lead.psychology?.discType || 'Unknown';
+
+    activeAgents.sort((a, b) => {
+        if (a.role === 'Profiler') return -1; if (b.role === 'Profiler') return 1;
+        if (a.role === 'Storyteller') return 1; if (b.role === 'Storyteller') return -1;
+
+        const priorityD = { 'TimingArchitect': 1, 'WealthStructurer': 2, 'Strategist': 3, 'Valuation': 4, 'Closer': 5, 'Skeptic': 6, 'RiskOfficer': 7 };
+        const priorityI = { 'Curator': 1, 'Lifestyle': 2, 'TimingArchitect': 3, 'Closer': 4, 'Strategist': 5, 'Valuation': 6 };
+        const priorityS = { 'Lifestyle': 1, 'Skeptic': 2, 'RiskOfficer': 3, 'Curator': 4, 'Valuation': 5, 'Closer': 6 };
+        const priorityC = { 'WealthStructurer': 1, 'Valuation': 2, 'Skeptic': 3, 'RiskOfficer': 4, 'Strategist': 5, 'TimingArchitect': 6 };
+        const priorityUnknown = { 'TimingArchitect': 1, 'Valuation': 2, 'Lifestyle': 3, 'Strategist': 4, 'Closer': 5 };
+
+        let map: any = priorityUnknown;
+        if (discType === 'D') map = priorityD;
+        else if (discType === 'I') map = priorityI;
+        else if (discType === 'S') map = priorityS;
+        else if (discType === 'C') map = priorityC;
+
+        const scoreA = map[a.role] || 99;
+        const scoreB = map[b.role] || 99;
+        return scoreA - scoreB;
+    });
+
+    // EXECUTION SIMULATION (UI FEEDBACK)
+    const displayAgents = activeAgents.filter(a => a.role !== 'Storyteller');
+    
+    for (const agent of displayAgents) {
+        onStep({ 
+            agentName: agent.name, agentRole: agent.task, agentType: agent.role, status: 'thinking', icon: agent.icon 
+        });
+        const delay = (agent.role === 'Valuation' || agent.role === 'WealthStructurer') ? 600 : 300;
+        await new Promise(r => setTimeout(r, delay)); 
+        onStep({ 
+            agentName: agent.name, agentRole: agent.task, agentType: agent.role, status: 'done', output: "Đã có dữ liệu.", icon: agent.icon 
+        });
+    }
+
+    try {
+        onStep({ agentName: "Người Kể Chuyện", agentRole: "Dệt câu chuyện khách hàng...", agentType: 'Storyteller', status: 'thinking', icon: "PenTool" });
+
+        // 🔥 THE WATERFALL PROMPT 🔥
+        // Explicitly instructs the LLM to follow the cascade of information.
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: `
+                [VAI TRÒ]: Bạn là 'The Storyteller' (Người Kể Chuyện). Viết tin nhắn tư vấn tâm huyết cho khách.
+                [MÔ HÌNH SUY LUẬN]: "WATERFALL CONTEXT FLOW" (Thác nước ngữ cảnh)
+                
+                Bước 1: Input
+                - Khách hàng: ${lead.name} (DISC: ${discType}). Nhu cầu: ${lead.needs}.
+                - Dự án: ${projectContext}.
+                
+                Bước 2: Processing (Giả lập suy luận của các chuyên gia)
+                ${displayAgents.map((a, i) => `   ${i + 1}. [${a.role.toUpperCase()}]: ${a.task}`).join('\n')}
+                
+                Bước 3: Synthesis (Nhiệm vụ của bạn)
+                HÃY DÙNG OUTPUT CỦA BƯỚC 2 ĐỂ VIẾT KỊCH BẢN.
+                - Mở đầu: Dùng thông tin từ 'Profiler' để tạo sự kết nối cá nhân (Rapport).
+                - Thân bài: Dùng số liệu từ 'Analysts' (Valuation/Legal/Wealth) để thuyết phục lý trí.
+                - Cao trào: Dùng cảm xúc từ 'Lifestyle/Curator' để vẽ viễn cảnh.
+                - Kết thúc: Dùng sự khẩn trương từ 'TimingArchitect/Closer' để chốt hẹn.
+                
+                [YÊU CẦU]: Viết văn phong tự nhiên, xưng "Em", không dùng gạch đầu dòng khô khan.
+            `,
+            config: { thinkingConfig: { thinkingBudget: 16384 } } 
+        }));
+        
+        onStep({ agentName: "Người Kể Chuyện", agentRole: "Hoàn tất.", agentType: 'Storyteller', status: 'done', output: "Đã xong.", icon: "PenTool" });
+        return response.text || "Lỗi tạo kịch bản.";
+    } catch (e) { return "Lỗi hệ thống AI Swarm."; }
+};
+
+export const marketIntelSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    sentimentScore: { type: Type.NUMBER },
+    sentimentLabel: { type: Type.STRING },
+    trendSummary: { type: Type.STRING },
+    topNews: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, source: { type: Type.STRING }, url: { type: Type.STRING }, time: { type: Type.STRING } } } },
+    bankRates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { bank: { type: Type.STRING }, rate: { type: Type.STRING } } } },
   },
 };
 
-// Helper to clean JSON string from Markdown code blocks
-const cleanJSON = (text: string) => {
-    return text.replace(/```json/g, '').replace(/```/g, '').trim();
-};
-
-export const createChatSession = (userProfile?: UserProfile | null, previousMessages: any[] = []) => {
-  const now = new Date();
-  const hours = now.getHours();
-  let timeOfDay = "ngày mới";
-  if (hours < 12) timeOfDay = "buổi sáng";
-  else if (hours < 18) timeOfDay = "buổi chiều";
-  else timeOfDay = "buổi tối";
-
-  const realTimeInstruction = `
-  \n=== REAL-TIME CONTEXT ===
-  - Thời gian hiện tại: ${now.toLocaleString('vi-VN')} (${timeOfDay}).
-  - Hãy chào hỏi phù hợp với thời điểm trong ngày (Ví dụ: Chào buổi sáng/chiều...).
-  `;
-
-  // --- PERSONALIZATION INJECTION ---
-  let userContext = "";
-  if (userProfile && userProfile.name) {
-      userContext = `
-      \n=== HỒ SƠ KHÁCH HÀNG VIP ===
-      - Tên khách hàng: "${userProfile.name}" (Hãy xưng hô bằng tên này một cách trân trọng).
-      - Lần cuối ghé thăm: ${new Date(userProfile.lastVisit).toLocaleDateString('vi-VN')}.
-      - Mối quan tâm trước đây: ${userProfile.lastInterest || "Chưa rõ"}.
-      - Gu đầu tư: ${userProfile.investmentStyle || "Đang tìm hiểu"}.
-      
-      NHIỆM VỤ CÁ NHÂN HÓA:
-      1. Luôn xưng hô tên khách hàng (VD: "Chào anh ${userProfile.name.split(' ').pop()}").
-      2. Nếu khách hỏi về dự án cũ (${userProfile.lastInterest}), hãy cập nhật ngay thông tin mới nhất của dự án đó.
-      3. Đóng vai trò là "Quản lý tài sản riêng" (Private Banker) chứ không chỉ là sales.
-      `;
-  } else {
-      userContext = `\n=== KHÁCH HÀNG MỚI ===\nHãy chào hỏi chuyên nghiệp, tạo ấn tượng tin cậy, hỏi thăm nhu cầu đầu tư hay mua ở để phân loại khách hàng (Profiling) ngay từ đầu.`;
-  }
-
-  const processInstruction = `
-\n=== QUY TRÌNH TƯ VẤN TÂM LÝ & THỰC CHIẾN (COMBAT READY SALES) ===
-Bạn là chuyên gia tư vấn BĐS Top 1 thị trường. Bạn không chỉ cung cấp thông tin, bạn BÁN GIẢI PHÁP.
-
-1. **Thấu hiểu & Đọc vị (Empathy & Discovery):** 
-   - Đừng vội bán hàng. Hãy hỏi để tìm "Pain point" (Nỗi đau). VD: Sợ lạm phát, sợ mua hớ, sợ pháp lý.
-   - Nhận diện nhóm tính cách: Shark (Lợi nhuận), Nester (An cư), Luxury (Sĩ diện).
-
-2. **Giải pháp & Neo giá (Solution & Anchoring):** 
-   - Dùng kỹ thuật "Chia nhỏ giá": "Chỉ 2 tỷ ban đầu sở hữu ngay...", "Mỗi tháng trả bằng tiền cho thuê...".
-   - So sánh để làm nổi bật: So sánh với các dự án cùng phân khúc nhưng giá cao hơn để thấy sự hời.
-
-3. **Chốt chặn cảm xúc (Emotional Closing):** 
-   - Tạo sự khẩn cấp (Scarcity): "Suất ngoại giao cuối cùng", "Chính sách chỉ áp dụng trong tuần này".
-   - Dùng bằng chứng xã hội (Social Proof): "Nhiều khách hàng bên em ở Q7 đã chuyển qua đây vì..."
-
-4. **Kiến thức Luật Chuyên Sâu (Expert Legal Mode):** 
-   - Khi nói về pháp lý, hãy trích dẫn cụ thể:
-     + **Luật Kinh Doanh BĐS 2023**: "Yên tâm về dòng tiền vì CĐT chỉ được thu cọc tối đa 5%."
-     + **Luật Đất Đai 2024**: "Bảng giá đất mới sẽ làm giá nhà tăng, mua bây giờ là đáy."
-     + **Luật Xây Dựng**: "Dự án đã có Giấy phép xây dựng số..., đảm bảo đúng tiến độ."
-
-5. **Kêu gọi hành động (Call to Action):** 
-   - Mục tiêu tối thượng: Xin số điện thoại (Lead Capture) để gửi bảng tính dòng tiền chi tiết.
-   - Câu chốt mẫu: "Để em chạy thử bảng tính dòng tiền chi tiết gửi qua Zalo cho anh/chị xem nhé? Số Zalo anh/chị là số mấy ạ?"
-
-=== QUAN TRỌNG: THU THẬP LEAD ===
-- **TUYỆT ĐỐI KHÔNG** gọi hàm \`handoffToSales\` nếu chưa có Số điện thoại (Phone Number).
-- **VALIDATE SỐ ĐIỆN THOẠI**: Phải bắt đầu bằng số '0' và có ít nhất 10 chữ số.
-`;
-
-  // --- TOKEN OPTIMIZATION: SLIDING WINDOW HISTORY ---
-  // Only keep the last 10 messages to prevent token explosion.
-  const recentHistory = previousMessages.slice(-10).map(msg => ({
-      role: msg.role,
-      parts: [{ text: msg.text }]
-  }));
-
-  return ai.chats.create({
-    model: 'gemini-3-flash-preview',
-    history: recentHistory, // Inject pruned history
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION + realTimeInstruction + userContext + processInstruction,
-      tools: [{ functionDeclarations: [handoffTool] }, { googleSearch: {} }],
-    },
-  });
-};
-
-export const generateWelcomeBackMessage = async (profile: UserProfile): Promise<string> => {
-    // 1. Check Cache first (Don't waste token on page refresh for welcome msg)
-    const cacheKey = `welcome_msg_${profile.name}`;
-    const cachedMsg = getCachedData<string>(cacheKey);
-    if (cachedMsg) return cachedMsg;
-
-    try {
-        const hours = new Date().getHours();
-        let timeGreeting = "ngày mới tốt lành";
-        if (hours < 12) timeGreeting = "buổi sáng";
-        else if (hours < 18) timeGreeting = "buổi chiều";
-        else timeGreeting = "buổi tối";
-
-        const resp = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Bạn là Private Banker (Quản lý tài sản cao cấp) có EQ cao. Hãy viết một tin nhắn chào mừng ngắn (tối đa 2 câu) cho khách hàng VIP tên "${profile.name}".
-            - Thời gian: ${timeGreeting}.
-            - Lịch sử quan tâm: Dự án "${profile.lastInterest}".
-            - Tone giọng: Sang trọng, ân cần, chuyên nghiệp, tạo cảm giác được quan tâm đặc biệt.
-            - Mục tiêu: Hỏi xem họ có muốn cập nhật "tin mật" hoặc chính sách mới nhất của dự án cũ không.
-            - Không dùng markdown.
-            - TUYỆT ĐỐI KHÔNG SỬ DỤNG EMOJI (Biểu tượng cảm xúc).`,
-            config: {
-                maxOutputTokens: 100 // STRICT LIMIT for welcome message
-            }
-        }));
-        const text = resp.text || `Chào ${profile.name}, chúc anh/chị ${timeGreeting}. Anh/chị có muốn cập nhật bảng hàng mới nhất của ${profile.lastInterest || 'dự án'} không ạ?`;
-        
-        // Cache for 1 hour
-        setCachedData(cacheKey, text, 60 * 60 * 1000); 
-        return text;
-
-    } catch (e) {
-        if (isQuotaExceeded(e)) {
-            // Quietly fail for welcome message
-            // console.warn("Welcome Msg Quota Exceeded: Using fallback.");
-        }
-        return `Chào mừng ${profile.name} quay trở lại. Anh/chị cần hỗ trợ thông tin gì hôm nay ạ?`;
-    }
-}
-
-export const generateMarketComparison = async (query?: string): Promise<MarketData[]> => {
-  // If no query (default view), try cache
-  if (!query) {
-      const cached = getCachedData<MarketData[]>('market_comparison_default');
-      if (cached) return cached;
-  }
-
-  // Use dedupedRequest for market comparison as well
-  return dedupedRequest(`market_comp_${query || 'default'}`, async () => {
-      try {
-        const prompt = query 
-          ? `Act as a real estate data analyst. Based on the request: "${query}", generate a JSON array containing real estate market data.
-             Each item in the array must be an object with:
-             - "name": District or area name (string)
-             - "value": Price in Million VND/m2 (number)
-             - "source": Data source (string, e.g. "Q1 2024 Report")
-             Output valid JSON only.`
-          : `Act as a real estate data analyst. Generate a JSON array of average real estate prices for 5 key districts in HCMC (Q1, Thu Thiem, Q7, Binh Thanh, Thu Duc).
-             Each item in the array must be an object with:
-             - "name": District or area name (string)
-             - "value": Price in Million VND/m2 (number)
-             - "source": Data source (string)
-             Output valid JSON only.`;
-          
-        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-          }
-        }));
-
-        if (response.text) {
-            const cleaned = cleanJSON(response.text);
-            const parsed = JSON.parse(cleaned);
-            let result: MarketData[] = [];
-            
-            if (Array.isArray(parsed)) result = parsed as MarketData[];
-            else {
-                const values = Object.values(parsed);
-                const arrayVal = values.find(v => Array.isArray(v));
-                if (arrayVal) result = arrayVal as MarketData[];
-            }
-
-            if (result.length > 0 && !query) {
-                setCachedData('market_comparison_default', result);
-            }
-            return result;
-        }
-        return [];
-      } catch (error) {
-        if (isQuotaExceeded(error)) {
-            // console.warn("Market Data Quota Exceeded: Using offline fallback data.");
-        }
-        // Rich Fallback Data
-        return [
-           { name: 'Quận 1', value: 480, source: 'Dữ liệu Q4/2024 (Offline)' },
-           { name: 'Thủ Thiêm', value: 350, source: 'Dữ liệu Q4/2024 (Offline)' },
-           { name: 'Quận 7', value: 125, source: 'Dữ liệu Q4/2024 (Offline)' },
-           { name: 'Bình Thạnh', value: 165, source: 'Dữ liệu Q4/2024 (Offline)' },
-           { name: 'TP. Thủ Đức', value: 95, source: 'Dữ liệu Q4/2024 (Offline)' }
-        ];
-      }
-  });
-};
-
-export const getMacroEconomics = async (): Promise<MacroData | null> => {
-    // 1. Check Local Cache
-    const cached = getCachedData<MacroData>('macro_economics');
-    if (cached) return cached;
-
-    // 2. Use Deduplication
-    return dedupedRequest('macro_economics', async () => {
-        try {
-            const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: "Get current Vietnam macro economic data: Gold SJC price (Trieu/luong), USD/VND rate, and average mortgage interest rate (%). Return JSON.",
-                config: {
-                    tools: [{googleSearch: {}}],
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            goldSJC: { type: Type.STRING },
-                            usdRate: { type: Type.STRING },
-                            interestRate: { type: Type.STRING },
-                            lastUpdated: { type: Type.STRING }
-                        }
-                    }
-                }
-            }));
-            if (response.text) {
-                const cleaned = cleanJSON(response.text);
-                const data = JSON.parse(cleaned) as MacroData;
-                setCachedData('macro_economics', data);
-                return data;
-            }
-        } catch (e) {
-            // Fallback handled below
-        }
-        // Rich Fallback Data
-        return {
-            goldSJC: "82.50",
-            usdRate: "25.450",
-            interestRate: "6.5%",
-            lastUpdated: new Date().toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'}) + " (Offline)"
-        };
-    });
-};
-
 export const fetchMarketIntelligence = async (): Promise<MarketIntel | null> => {
-    // 1. Check Local Cache
-    const cached = getCachedData<MarketIntel>('market_intel');
-    if (cached) return { ...cached, lastUpdated: new Date(cached.lastUpdated) };
-
-    // 2. Use Deduplication
-    return dedupedRequest('market_intel', async () => {
-        try {
-            const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: "Analyze current Vietnam real estate market sentiment. Return JSON with sentiment score (0-100), trend summary, and top news.",
-                config: {
-                    tools: [{googleSearch: {}}],
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            sentimentScore: { type: Type.NUMBER },
-                            sentimentLabel: { type: Type.STRING },
-                            trendSummary: { type: Type.STRING },
-                            topNews: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        title: { type: Type.STRING },
-                                        source: { type: Type.STRING },
-                                        url: { type: Type.STRING },
-                                        time: { type: Type.STRING }
-                                    }
-                                }
-                            },
-                            bankRates: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        bank: { type: Type.STRING },
-                                        rate: { type: Type.STRING }
-                                    }
-                                }
-                            },
-                            lastUpdated: { type: Type.STRING }
-                        }
-                    }
-                }
-            }));
-            
-            if (response.text) {
-                const cleaned = cleanJSON(response.text);
-                const data = JSON.parse(cleaned);
-                setCachedData('market_intel', data);
-                return { ...data, lastUpdated: new Date() };
-            }
-        } catch (e) {
-           // Fallback below
-        }
-        // Rich Fallback Data
-        return {
-            sentimentScore: 68,
-            sentimentLabel: "Tích cực",
-            trendSummary: "Thị trường đang hồi phục nhẹ nhờ lãi suất cho vay giảm và các luật BĐS mới có hiệu lực. (Chế độ Offline)",
-            topNews: [
-                {
-                    title: "Lãi suất vay mua nhà chạm đáy 2024",
-                    source: "VnExpress",
-                    url: "#",
-                    time: "2 giờ trước"
-                },
-                {
-                    title: "Giá chung cư TP.HCM tiếp tục lập đỉnh mới",
-                    source: "CafeF",
-                    url: "#",
-                    time: "5 giờ trước"
-                },
-                {
-                    title: "Thủ Thiêm đón sóng đầu tư hạ tầng cuối năm",
-                    source: "ZingNews",
-                    url: "#",
-                    time: "1 ngày trước"
-                }
-            ],
-            bankRates: BANK_DATA.slice(0, 3).map(b => ({ bank: b.bankName, rate: `${b.rateFirstYear}%` })),
-            lastUpdated: new Date()
-        };
-    });
-}
-
-export const generateSpeech = async (text: string, voice: string = 'Aoede'): Promise<string | null> => {
+    const ai = getAI();
     try {
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-2.5-flash-preview-tts',
-            contents: {
-                parts: [{ text: text }]
-            },
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: voice }
-                    }
-                }
+            model: 'gemini-3-pro-preview',
+            contents: "Tìm kiếm tin tức BĐS Việt Nam mới nhất 24h qua.",
+            config: { 
+                responseMimeType: "application/json",
+                responseSchema: marketIntelSchema,
+                tools: [{ googleSearch: {} }] 
             }
         }));
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        return base64Audio || null;
-    } catch (error) {
-        if (isQuotaExceeded(error)) {
-            console.warn("TTS Quota Exceeded: Switching to native browser speech.");
-        } else {
-            console.error("TTS Error:", error);
+        if (response.text) {
+            const data = JSON.parse(response.text.trim());
+            return { ...data, lastUpdated: new Date() } as MarketIntel;
         }
         return null;
-    }
-};
-
-export const generateSalesScript = async (lead: Lead): Promise<string> => {
-    try {
-        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Bạn là chuyên gia huấn luyện sales BĐS. Hãy viết kịch bản telesale (gọi điện) đỉnh cao cho khách hàng tiềm năng này:
-- Tên: ${lead.name}
-- Quan tâm: ${lead.projectInterest}
-- Nhu cầu: ${lead.needs}
-- Ngân sách: ${lead.budget}
-- Mục đích: ${lead.purpose}
-- Trạng thái: ${lead.status}
-
-YÊU CẦU KỊCH BẢN:
-1. Mở đầu: Gây ấn tượng trong 5 giây đầu (Hook). Tránh câu "Em chào anh, em gọi từ..." nhàm chán.
-2. Khai thác nỗi đau (Pain Point): Đặt câu hỏi để tìm ra vấn đề của khách (Sợ lạm phát? Sợ mua hớ? Cần dòng tiền?).
-3. Giải pháp (Solution): Kết nối dự án ${lead.projectInterest} như một giải pháp tài chính/an cư hoàn hảo.
-4. Xử lý từ chối (Objection Handling): Dự đoán 1 lời từ chối khách có thể nói và viết câu đối đáp sắc sảo.
-5. Chốt hẹn (Closing): Mời tham quan nhà mẫu hoặc gửi bảng tính dòng tiền.
-`,
-        }));
-        return response.text || "Could not generate script.";
-    } catch (error) {
-        if (isQuotaExceeded(error)) {
-            return `### Kịch bản (Chế độ Offline)\n\n**Chào hỏi:** "Dạ em chào anh/chị ${lead.name}, em gọi từ dự án ${lead.projectInterest}..."\n\n**Kết nối:** "Em thấy anh/chị đang quan tâm đến ${lead.projectInterest} với ngân sách tầm ${lead.budget}..."\n\n*(Hệ thống đang quá tải, vui lòng thử lại sau để có kịch bản chi tiết hơn)*`;
-        }
-        console.error("Script generation error", error);
-        return "Lỗi khi tạo kịch bản.";
-    }
-};
-
-export const generateFallbackChatResponse = (text: string) => {
-    return "Hiện tại hệ thống AI đang quá tải (Quota Exceeded). Tuy nhiên, tôi vẫn có thể giúp bạn sử dụng các công cụ tính toán như:\n- Tính dòng tiền\n- Ước tính khoản vay\n- So sánh lãi suất\n\nVui lòng chọn công cụ từ menu hoặc thử lại sau giây lát.";
+    } catch (error) { return null; }
 };

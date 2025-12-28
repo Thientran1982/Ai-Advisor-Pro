@@ -1,0 +1,103 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    @apply bg-[#FCFCFD] text-slate-900; /* Lighter, cleaner background */
+  }
+}
+
+@layer utilities {
+  /* Custom Scrollbar - Minimalist */
+  @media (min-width: 768px) {
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
+    }
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+
+  /* ANIMATIONS - iOS Spring Physics Feel */
+  .animate-in {
+    animation-duration: 0.6s;
+    animation-fill-mode: both;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); /* Spring bezier */
+  }
+  
+  .fade-in { animation-name: fadeIn; }
+  .slide-in-from-bottom-2 { --tw-enter-translate-y: 10px; animation-name: enter-slide-y; }
+  .slide-in-from-bottom-4 { --tw-enter-translate-y: 20px; animation-name: enter-slide-y; }
+  .zoom-in-95 { --tw-enter-scale: 0.98; animation-name: enter-scale; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes enter-slide-y { from { transform: translateY(var(--tw-enter-translate-y)); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes enter-scale { from { transform: scale(var(--tw-enter-scale)); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* BACKGROUND PATTERNS (Grok/Linear Style) */
+  .bg-grid-pattern {
+    background-size: 40px 40px;
+    background-image: linear-gradient(to right, rgba(0, 0, 0, 0.02) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
+    mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+  }
+}
+
+/* MARKDOWN STYLES - Clean & Reader Friendly */
+.prose {
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.prose strong {
+  font-weight: 600;
+  color: #1e293b;
+}
+.prose ul {
+  list-style-type: disc;
+  padding-left: 1.2em;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+.prose li {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+.prose p {
+  margin-bottom: 0.75em;
+}
+.prose-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1rem 0;
+  font-size: 0.85rem;
+  @apply border border-slate-200 rounded-xl overflow-hidden shadow-sm;
+}
+.prose-table th {
+  @apply bg-slate-50/50 font-semibold text-left p-3 border-b border-slate-200 text-slate-700;
+}
+.prose-table td {
+  @apply p-3 border-b border-slate-100 text-slate-600;
+}
+.prose-blockquote {
+  @apply border-l-2 border-indigo-500 pl-4 italic text-slate-500 my-4;
+}
