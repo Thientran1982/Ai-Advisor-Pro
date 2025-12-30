@@ -18,7 +18,6 @@ const ProjectDetailPanel: React.FC<ProjectDetailPanelProps> = ({ project, onClos
           setMounted(true);
           setIsClosing(false);
       } else {
-          // Delay unmount for animation
           const timer = setTimeout(() => setMounted(false), 300);
           return () => clearTimeout(timer);
       }
@@ -26,44 +25,40 @@ const ProjectDetailPanel: React.FC<ProjectDetailPanelProps> = ({ project, onClos
 
   const handleClose = () => {
       setIsClosing(true);
-      setTimeout(onClose, 300); // Wait for animation
+      setTimeout(onClose, 300); 
   };
   
   if (!mounted && !project) return null;
 
-  // Use the project data (either current or lingering state for animation)
   const displayProject = project; 
   if (!displayProject) return null;
 
-  // Combine main image and gallery for the preview list
   const allImages = [displayProject.image, ...(displayProject.gallery || [])];
 
   return (
     <div className="fixed inset-0 z-[100] flex justify-end items-end md:items-stretch">
-      {/* Backdrop - Click here to close */}
+      {/* Backdrop */}
       <div 
         className={`absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ${isClosing ? 'opacity-0' : 'opacity-100'}`}
         onClick={handleClose}
       />
 
-      {/* Panel - HYBRID: Bottom Sheet (Mobile) / Side Drawer (Desktop) */}
+      {/* Panel */}
       <div 
         className={`
             relative w-full md:max-w-[480px] bg-white shadow-2xl flex flex-col 
-            md:h-full h-[92vh] rounded-t-[32px] md:rounded-none md:rounded-l-[32px]
+            md:h-full h-[90dvh] rounded-t-[32px] md:rounded-none md:rounded-l-[32px]
             transform transition-transform duration-300 ease-out border-l border-white/10
             ${isClosing 
-                ? 'translate-y-full md:translate-y-0 md:translate-x-full' // Exit animation
-                : 'translate-y-0 md:translate-x-0 animate-in slide-in-from-bottom md:slide-in-from-right' // Enter animation
+                ? 'translate-y-full md:translate-y-0 md:translate-x-full' // Exit
+                : 'translate-y-0 md:translate-x-0 animate-in slide-in-from-bottom md:slide-in-from-right' // Enter
             }
         `}
         onClick={(e) => e.stopPropagation()} 
       >
         
-        {/* Mobile Drag Handle Indicator */}
         <div className="md:hidden absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-slate-200 rounded-full z-30 pointer-events-none" />
 
-        {/* Close Button - Responsive Positioning (Lower on Mobile to avoid Notch/Corners) */}
         <button 
           onClick={handleClose}
           className="absolute top-6 right-6 z-30 p-2 bg-white/90 md:bg-black/20 hover:bg-white md:hover:bg-black/40 backdrop-blur-md text-slate-900 md:text-white rounded-full transition-all duration-300 shadow-sm group"
@@ -71,8 +66,8 @@ const ProjectDetailPanel: React.FC<ProjectDetailPanelProps> = ({ project, onClos
           <X size={20} className="group-hover:scale-110 transition-transform"/>
         </button>
 
-        {/* 1. HERO IMAGE (Scrollable Parallax Effect) */}
-        <div className="h-[280px] md:h-[350px] shrink-0 relative group cursor-pointer overflow-hidden rounded-t-[32px] md:rounded-t-none md:rounded-tl-[32px]" onClick={() => setActiveImage(displayProject.image)}>
+        {/* 1. HERO IMAGE */}
+        <div className="h-[240px] md:h-[350px] shrink-0 relative group cursor-pointer overflow-hidden rounded-t-[32px] md:rounded-t-none md:rounded-tl-[32px]" onClick={() => setActiveImage(displayProject.image)}>
           <img 
             src={displayProject.image} 
             alt={displayProject.name} 
@@ -96,7 +91,7 @@ const ProjectDetailPanel: React.FC<ProjectDetailPanelProps> = ({ project, onClos
 
         {/* 2. SCROLLABLE CONTENT */}
         <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 overscroll-contain">
-          <div className="p-6 md:p-8 space-y-8">
+          <div className="p-6 md:p-8 space-y-8 pb-32"> {/* Increased padding bottom for safe scroll */}
             
             {/* Quick Stats Grid */}
             <div className="grid grid-cols-2 gap-4">
@@ -107,7 +102,8 @@ const ProjectDetailPanel: React.FC<ProjectDetailPanelProps> = ({ project, onClos
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
                      Mức giá
                   </p>
-                  <p className="text-sm font-black text-slate-900 truncate">{displayProject.priceRange}</p>
+                  {/* FIX: Removed truncate, added leading-tight for multi-line price */}
+                  <p className="text-sm font-black text-slate-900 leading-tight">{displayProject.priceRange}</p>
                </div>
                <div className="p-4 md:p-5 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow duration-300 group">
                   <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center mb-3 text-green-600 group-hover:scale-110 transition-transform">
@@ -255,7 +251,7 @@ const ProjectDetailPanel: React.FC<ProjectDetailPanelProps> = ({ project, onClos
         </div>
 
         {/* 3. STICKY FOOTER ACTIONS - SAFE AREA OPTIMIZED */}
-        <div className="p-4 md:p-6 border-t border-slate-200 bg-white shrink-0 pb-safe z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] rounded-b-none md:rounded-bl-[32px]">
+        <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 border-t border-slate-200 bg-white shrink-0 pb-safe z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] rounded-b-none md:rounded-bl-[32px]">
            <button 
              className="w-full py-4 bg-slate-900 hover:bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest text-xs transition-all duration-300 shadow-xl shadow-slate-200 hover:shadow-indigo-200 flex items-center justify-center gap-3 group active:scale-[0.98]"
              onClick={handleClose}
@@ -266,7 +262,6 @@ const ProjectDetailPanel: React.FC<ProjectDetailPanelProps> = ({ project, onClos
 
       </div>
 
-      {/* Lightbox Modal for Image Inspection */}
       {activeImage && (
         <div className="fixed inset-0 z-[150] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setActiveImage(null)}>
            <button className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors p-2 bg-white/10 rounded-full">

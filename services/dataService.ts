@@ -1,5 +1,5 @@
 
-import { Lead, Project, AppNotification, Campaign, KnowledgeDocument, Appointment, Invoice, BankRate, UserPsychology, UserMemory } from "../types";
+import { Lead, Project, AppNotification, Campaign, KnowledgeDocument, Appointment, Invoice, BankRate, UserPsychology, UserMemory, ProjectRichDetails } from "../types";
 import { FEATURED_PROJECTS, MACRO_ECONOMY } from "../constants";
 
 const LEADS_KEY = 'advisor_leads_db';
@@ -10,115 +10,241 @@ const DOCUMENTS_KEY = 'advisor_documents_db';
 const APPOINTMENTS_KEY = 'advisor_appointments_db';
 const INVOICES_KEY = 'advisor_invoices_db';
 
-// REALISTIC BANK RATES (Vietnam Market Context)
-const LIVE_BANK_RATES = [
-    { 
-        bank: 'Vietcombank', 
-        fix: '5.8%', 
-        float: '9.0%', 
-        term: '12 tháng đầu',
-        earlyFee: '0.5% - 2% (Sau năm 5 miễn phí)',
-        icon: 'https://cdn.haitrieu.com/wp-content/uploads/2022/02/Icon-Vietcombank.png' 
-    },
-    { 
-        bank: 'BIDV', 
-        fix: '6.0%', 
-        float: '9.3%', 
-        term: '24 tháng đầu',
-        earlyFee: '1% - 3% (Theo lộ trình)',
-        icon: 'https://cdn.haitrieu.com/wp-content/uploads/2022/01/Logo-BIDV-Icon.png' 
-    },
-    { 
-        bank: 'Shinhan Bank', 
-        fix: '5.5%', 
-        float: '8.5%', 
-        term: '6 tháng đầu',
-        earlyFee: 'Miễn phí sau năm 3',
-        icon: 'https://cdn.haitrieu.com/wp-content/uploads/2022/01/Logo-Shinhan-Bank.png' 
-    },
-    { 
-        bank: 'Techcombank', 
-        fix: '6.5%', 
-        float: '10.2%', 
-        term: 'Phí trả trước hạn thấp',
-        earlyFee: '1% (Miễn phí từ năm 6)',
-        icon: 'https://cdn.haitrieu.com/wp-content/uploads/2022/01/Logo-Techcombank-Icon.png' 
-    },
-    { 
-        bank: 'VIB', 
-        fix: '7.5%', 
-        float: '11.5%', 
-        term: 'Duyệt vay 8h',
-        earlyFee: '2% - 3%',
-        icon: 'https://cdn.haitrieu.com/wp-content/uploads/2022/01/Logo-VIB-Icon.png' 
-    },
-    { 
-        bank: 'UOB', 
-        fix: '6.0%', 
-        float: '8.8%', 
-        term: 'Cố định 3 năm',
-        earlyFee: 'Cao trong 3 năm đầu',
-        icon: 'https://companieslogo.com/img/orig/U11.SI-a3867059.png' 
-    }
+// REMOVED HARDCODED RATES. AI MUST SEARCH.
+const LIVE_BANK_RATES: any[] = [
+    { bank: 'Vietcombank', fix: 'Tra cứu...', float: 'Tra cứu...', term: '12 tháng', earlyFee: 'check' },
+    { bank: 'BIDV', fix: 'Tra cứu...', float: 'Tra cứu...', term: '24 tháng', earlyFee: 'check' },
+    { bank: 'Techcombank', fix: 'Tra cứu...', float: 'Tra cứu...', term: 'Niêm yết', earlyFee: 'check' }
 ];
 
-export const dataService = {
-  getLiveMarketContext: () => {
+// GENERATOR: Create fake rich details for user-added projects so tools don't crash
+const generateMockRichDetails = (priceStr: string): ProjectRichDetails => {
     return {
-        timestamp: new Date().toLocaleTimeString(),
-        gold: MACRO_ECONOMY.goldPrice,
-        usd: MACRO_ECONOMY.usdRate,
-        rates: {
-            big4: MACRO_ECONOMY.interestRate.big4,
-            commercial: MACRO_ECONOMY.interestRate.commercial,
-            floating: MACRO_ECONOMY.interestRate.floating
+        marketAnalysis: {
+            yield: "5.0% - 6.0%",
+            baseYield: 0.055,
+            appreciationPotential: "Tốt (Dự án mới)",
+            competitors: ["Các dự án lân cận"],
+            risks: ["Pháp lý đang hoàn thiện", "Cạnh tranh nguồn cung"],
+            opportunities: ["Giá đợt 1 tốt", "Hạ tầng khu vực đang lên"],
+            forecast: "Tăng trưởng ổn định theo tiến độ xây dựng."
         },
-        legal: "Luật Đất Đai 2024 có hiệu lực",
-        infra: MACRO_ECONOMY.infrastructure,
-        trend: "down" 
+        legalDetail: "Đang cập nhật (Người dùng tự thêm)",
+        legalScore: 80,
+        fengShui: {
+            direction: "Đa dạng",
+            element: "Trung tính",
+            note: "Cần xem chi tiết từng căn."
+        },
+        finance: {
+            bankSupport: "Vietcombank, MB",
+            minDownPayment: "15%",
+            maxLoanRatio: 0.7
+        }
+    };
+};
+
+export const dataService = {
+  /**
+   * 🔌 REAL-TIME ERP SIMULATOR (SMART GENERATOR V3.2 - BEST MATCH SEARCH)
+   * Fixes "First Match False Positive" by implementing a scoring algorithm
+   */
+  checkInventoryRealtime: async (projectCode: string, unitCode?: string): Promise<any> => {
+      // 1. INPUT NORMALIZATION
+      const searchName = projectCode.toLowerCase().trim();
+      
+      // 2. FIND PROJECT METADATA (SMART MATCHING ALGORITHM)
+      const allProjects = dataService.getProjects();
+      
+      let bestMatch: Project | undefined;
+      let maxScore = 0;
+
+      allProjects.forEach(p => {
+          const pName = p.name.toLowerCase();
+          const pId = p.id.toLowerCase();
+          let score = 0;
+
+          // Scoring Logic
+          if (pName === searchName || pId === searchName) {
+              score = 100; // Exact match takes priority
+          } else if (pName.includes(searchName)) {
+              // Partial match: Higher score for closer length match (e.g. "Global City" matches "City" better than "Aqua City" if context implies)
+              // Here we just prioritize basic containment, but we add length weight
+              score = 50 + (searchName.length / pName.length) * 20; 
+          } else if (pId.includes(searchName)) {
+              score = 40;
+          }
+
+          if (score > maxScore) {
+              maxScore = score;
+              bestMatch = p;
+          }
+      });
+
+      // Threshold to prevent random matches for very generic terms
+      const project = maxScore > 30 ? bestMatch : undefined;
+
+      // 3. NETWORK LATENCY SIMULATION (Authenticity feel)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // 4. GENERATIVE LOGIC
+      if (project) {
+          const developer = project.developer;
+          const priceRangeStr = project.priceRange;
+          
+          // EXTRACT NUMERIC PRICE FROM REAL DATA
+          const numbers = priceRangeStr.match(/(\d+[,.]?\d*)/g)?.map(n => parseFloat(n.replace(/,/g, ''))) || [50];
+          const minPrice = numbers[0];
+          const maxPrice = numbers.length > 1 ? numbers[1] : minPrice * 1.2;
+          const currency = priceRangeStr.includes('USD') ? 'USD' : (priceRangeStr.includes('Tỷ') ? 'Tỷ' : 'Triệu/m²');
+
+          // Determine if Primary (CĐT) or Secondary (Resale) Market based on Status
+          const isSecondaryMarket = project.status.toLowerCase().includes('bàn giao') || project.status.toLowerCase().includes('sổ hồng');
+          
+          // SOURCE ATTRIBUTION LOGIC
+          let sourceName = `ERP_${developer.toUpperCase().replace(/\s/g, '_')}_OFFICIAL`;
+          let marketInsight = "Dữ liệu từ bảng hàng Chủ Đầu Tư (Real-time).";
+          
+          if (isSecondaryMarket) {
+              sourceName = "MARKET_CRAWLER_V2";
+              marketInsight = "⚠️ Giỏ hàng CĐT đã hết. Dữ liệu này được tổng hợp từ 'Cộng đồng Cư dân' và 'Sàn giao dịch thứ cấp'.";
+          }
+
+          // A. UNIT SPECIFIC QUERY
+          if (unitCode) {
+              const hash = unitCode.split('').reduce((a,b)=>a+b.charCodeAt(0),0);
+              const isLocked = hash % 3 === 0; // 33% chance locked
+              
+              const priceFactor = (hash % 100) / 100; // 0.00 to 0.99
+              const actualPriceRaw = minPrice + (maxPrice - minPrice) * priceFactor;
+              
+              let formattedPrice = "";
+              if (currency === 'Triệu/m²') formattedPrice = `${actualPriceRaw.toFixed(1)} Triệu/m²`;
+              else if (currency === 'USD') formattedPrice = `${Math.floor(actualPriceRaw).toLocaleString()} USD/m²`;
+              else formattedPrice = `${actualPriceRaw.toFixed(1)} Tỷ`;
+
+              return {
+                  status: "success",
+                  source: sourceName,
+                  timestamp: new Date().toISOString(),
+                  data: {
+                      unit_code: unitCode,
+                      is_available: !isLocked,
+                      price: isLocked ? "Đã bán" : `${formattedPrice} (Chưa VAT)`,
+                      policy: isLocked ? "N/A" : (isSecondaryMarket ? "Thương lượng trực tiếp" : project.paymentSchedule),
+                      urgent_note: isLocked 
+                          ? `❌ Căn ${unitCode} đã có cọc.` 
+                          : `✅ Tín hiệu tốt: Căn ${unitCode} giá tốt hơn trung bình.`,
+                      advisor_action: isLocked 
+                          ? "Đề xuất căn khác tầng cao hơn." 
+                          : "Đề nghị khách lock căn (ưu tiên)."
+                  }
+              };
+          }
+
+          // B. PROJECT OVERVIEW QUERY (SMART GENERATION)
+          const stockCount = isSecondaryMarket ? Math.floor(Math.random() * 15) + 5 : Math.floor(Math.random() * 50) + 10;
+          
+          const mockUnits = [];
+          const blocks = ["A", "B", "C", "D", "T1"];
+          const views = ["Sông", "Thành phố", "Hồ bơi", "Công viên", "Landmark"];
+          
+          for(let i=0; i<3; i++) {
+              const block = blocks[Math.floor(Math.random() * blocks.length)];
+              const floor = Math.floor(Math.random() * 25) + 3;
+              const num = Math.floor(Math.random() * 15) + 1;
+              const code = `${block}${floor}.${num < 10 ? '0'+num : num}`;
+              const area = Math.floor(Math.random() * 50) + 60; // 60-110m2
+              
+              let totalPrice = "";
+              if (currency === 'Triệu/m²') {
+                  const pPerM2 = minPrice + (Math.random() * (maxPrice - minPrice));
+                  const total = (pPerM2 * area) / 1000;
+                  totalPrice = `${total.toFixed(2)} Tỷ`;
+              } else if (currency === 'USD') {
+                  const pPerM2 = minPrice + (Math.random() * (maxPrice - minPrice));
+                  totalPrice = `${(pPerM2 * area).toLocaleString()} USD`;
+              } else {
+                  const total = minPrice + (Math.random() * (maxPrice - minPrice));
+                  totalPrice = `${total.toFixed(1)} Tỷ`;
+              }
+
+              mockUnits.push({
+                  code: code,
+                  type: `${Math.floor(area/35)}PN - ${area}m2`,
+                  status: "Available",
+                  price: totalPrice,
+                  view: views[Math.floor(Math.random() * views.length)],
+                  policy: isSecondaryMarket ? "Bao phí" : "Chiết khấu 1%"
+              });
+          }
+
+          return {
+              status: "success",
+              source: sourceName,
+              timestamp: new Date().toISOString(),
+              data: {
+                  stock_count: stockCount,
+                  project_status: project.status,
+                  units: mockUnits,
+                  market_insight: marketInsight,
+                  urgent_note: stockCount < 10 ? "🔥 HOT: Quỹ căn cạn dần." : "ℹ️ Nhiều lựa chọn đẹp.",
+                  ai_suggestion: "Booking sớm để ưu tiên chọn căn."
+              }
+          };
+      }
+
+      // 5. FALLBACK
+      return {
+          status: "success",
+          source: "EXTERNAL_SEARCH_AGGREGATOR",
+          timestamp: new Date().toISOString(),
+          data: {
+              stock_count: "N/A",
+              project_status: "Chưa có dữ liệu",
+              units: [],
+              market_insight: `Dữ liệu về '${projectCode}' chưa có trên hệ thống.`,
+              urgent_note: "Vui lòng check tay.",
+              ai_suggestion: "Xin số điện thoại khách để báo sau."
+          }
+      };
+  },
+
+  getLiveMarketContext: () => {
+    const now = new Date();
+    return {
+        timestamp: now.toLocaleString('vi-VN'),
+        gold: "Đang cập nhật...",
+        usd: "Đang cập nhật...",
+        rates: { floating: "10.5% (Tham chiếu)" },
+        legal: "Luật 2024",
+        infra: "Vành đai 3",
+        trend: "YÊU CẦU SEARCH" 
     };
   },
   
-  getFloatingInterestRate: (): number => {
-      try {
-          const rateStr = MACRO_ECONOMY.interestRate.floating; 
-          const nums = rateStr.match(/[\d\.]+/);
-          return nums ? parseFloat(nums[0]) : 10.5;
-      } catch (e) { return 10.5; }
-  },
-
+  getFloatingInterestRate: (): number => 10.5,
   getBankRates: () => LIVE_BANK_RATES,
   
   initializeMarketData: () => {
-      if (!localStorage.getItem(PROJECTS_KEY)) localStorage.setItem(PROJECTS_KEY, JSON.stringify(FEATURED_PROJECTS));
+      const storedProjectsStr = localStorage.getItem(PROJECTS_KEY);
+      // If no projects, init with Featured. If featured has new items, we might miss them, 
+      // but simplistic overwrite is safer for demo to ensure data integrity.
+      if (!storedProjectsStr) {
+          localStorage.setItem(PROJECTS_KEY, JSON.stringify(FEATURED_PROJECTS));
+      }
+
       if (!localStorage.getItem(INVOICES_KEY)) {
-          const mockInvoices: Invoice[] = [
-              { id: 'INV-2024-001', date: new Date('2024-01-15'), amount: 499000, status: 'paid', description: 'Gói Pro Agent - Tháng 1' },
-              { id: 'INV-2024-002', date: new Date('2024-02-15'), amount: 499000, status: 'paid', description: 'Gói Pro Agent - Tháng 2' },
-          ];
+          const mockInvoices: Invoice[] = [{ id: 'INV-2024-001', date: new Date('2024-01-15'), amount: 499000, status: 'paid', description: 'Gói Pro Agent - Tháng 1' }];
           localStorage.setItem(INVOICES_KEY, JSON.stringify(mockInvoices));
       }
       if (!localStorage.getItem(LEADS_KEY)) {
           const now = new Date();
-          const seedLeads: Lead[] = [
-              {
-                  id: 'seed_1', tenantId: 'demo_agent', name: 'Nguyễn Văn Hùng', phone: '0912345678', userType: 'individual', projectInterest: 'Global City',
-                  needs: 'Khách VIP. Đang tìm căn góc 3PN view sông, tài chính sẵn 10 tỷ, còn lại vay. Quan tâm kỹ về phong thủy và phí quản lý.', budget: '25 Tỷ', purpose: 'ở', status: 'visited', priority: 'urgent', source: 'Facebook Ads', createdAt: new Date(now.getTime() - 3 * 86400000),
-                  // Mock Psychology
-                  psychology: { discType: 'D', communicationStyle: 'brief', riskTolerance: 'high', painPoints: ['Sợ mất cơ hội', 'Thích vị trí độc tôn', 'Ghét thủ tục rườm rà'] },
-                  longTermMemory: [{ key: 'hated_direction', value: 'Tây (Nắng chiều)', confidence: 0.9, extractedAt: new Date() }, { key: 'family_size', value: '2 vợ chồng + 2 con', confidence: 0.95, extractedAt: new Date() }]
-              },
-              {
-                  id: 'seed_2', tenantId: 'demo_agent', name: 'Trần Thị Mai', phone: '0987654321', userType: 'individual', projectInterest: 'Eaton Park',
-                  needs: 'Mua đầu tư cho thuê dài hạn. Cần bảng tính dòng tiền chi tiết 10 năm. Rất kỹ tính về pháp lý.', budget: '7 Tỷ', purpose: 'đầu tư', status: 'new', priority: 'high', source: 'Google Search', createdAt: now,
-                  psychology: { discType: 'C', communicationStyle: 'detailed', riskTolerance: 'low', painPoints: ['Sợ pháp lý rủi ro', 'Cần dòng tiền ổn định', 'Sợ CĐT chậm tiến độ'] }
-              },
-              {
-                  id: 'seed_3', tenantId: 'demo_agent', name: 'Kevin Smith', phone: '0901112222', userType: 'individual', projectInterest: 'Empire City',
-                  needs: 'Expat looking for a penthouse view river. Ready to move in immediately.', budget: '60 Tỷ', purpose: 'ở', status: 'contacted', priority: 'medium', source: 'Referral', createdAt: new Date(now.getTime() - 86400000),
-                  psychology: { discType: 'I', communicationStyle: 'emotional', riskTolerance: 'medium', painPoints: ['Needs clear English support', 'Wants luxury amenities'] }
-              }
-          ];
+          const seedLeads: Lead[] = [{
+              id: 'seed_1', tenantId: 'demo_agent', name: 'Nguyễn Văn Hùng', phone: '0912345678', userType: 'individual', projectInterest: 'Global City',
+              needs: 'Khách VIP. Quan tâm giá mới nhất.', budget: '25 Tỷ', purpose: 'ở', status: 'visited', priority: 'urgent', source: 'Facebook Ads', createdAt: new Date(now.getTime() - 3 * 86400000),
+              psychology: { discType: 'D', communicationStyle: 'brief', riskTolerance: 'high', painPoints: ['Sợ mua hớ', 'Thích vị trí độc tôn'] },
+          }];
           localStorage.setItem(LEADS_KEY, JSON.stringify(seedLeads));
       }
   },
@@ -155,14 +281,12 @@ export const dataService = {
       }
   },
 
-  // 🔥 NEW: UPDATE USER PSYCHOLOGY & MEMORY 🔥
   updateLeadPsychology: (id: string, psychology: Partial<UserPsychology>) => {
       const all = dataService.getAllLeadsRaw();
       const idx = all.findIndex(l => l.id === id);
       if (idx !== -1) {
           all[idx].psychology = { ...all[idx].psychology, ...psychology } as UserPsychology;
           localStorage.setItem(LEADS_KEY, JSON.stringify(all));
-          // Silent update, no window event needed for chat re-render usually, but helpful for debug
       }
   },
 
@@ -171,13 +295,9 @@ export const dataService = {
       const idx = all.findIndex(l => l.id === id);
       if (idx !== -1) {
           const currentMemories = all[idx].longTermMemory || [];
-          // Deduplicate or update confidence
           const existingMemIdx = currentMemories.findIndex(m => m.key === memory.key);
-          if (existingMemIdx !== -1) {
-              currentMemories[existingMemIdx] = memory;
-          } else {
-              currentMemories.push(memory);
-          }
+          if (existingMemIdx !== -1) currentMemories[existingMemIdx] = memory;
+          else currentMemories.push(memory);
           all[idx].longTermMemory = currentMemories;
           localStorage.setItem(LEADS_KEY, JSON.stringify(all));
       }
@@ -204,6 +324,10 @@ export const dataService = {
 
   addProject: (project: Project) => {
       const all = dataService.getProjects();
+      // 🔥 FIX: Auto-generate rich details if missing, so tools work for user projects
+      if (!project.richDetails) {
+          project.richDetails = generateMockRichDetails(project.priceRange);
+      }
       all.push(project);
       localStorage.setItem(PROJECTS_KEY, JSON.stringify(all));
       window.dispatchEvent(new Event('storage'));
@@ -345,42 +469,12 @@ export const dataService = {
       } catch (e) { return []; }
   },
 
-  // 🧠 ENHANCED MOCK OCR: RETURN SPECIFIC DATA
   generateMockDocContent: (fileName: string): string => {
       const lowerName = fileName.toLowerCase();
-      // SCENARIO 1: PRICE LIST (Crucial for Sales)
-      if (lowerName.includes('gia') || lowerName.includes('price') || lowerName.includes('bang')) {
-          return `
-[OCR EXTRACT - BẢNG GIÁ NỘI BỘ]:
-- Dự án: Eaton Park
-- Căn hộ A1.05 (2PN): 7.2 tỷ (Chưa VAT)
-- Căn hộ B1.12 (3PN): 12.5 tỷ (Góc, View Sông)
-- Penthouse P.01: 25 tỷ
-- Chính sách: Chiết khấu 10% nếu thanh toán nhanh 95%.
-- Phí quản lý: 25.000 VNĐ/m2.
-          `;
+      if (lowerName.includes('gia')) {
+          return `[OCR EXTRACT]: Bảng giá ${fileName}. Dữ liệu này có thể cũ. Hãy yêu cầu search giá mới nhất.`;
       }
-      // SCENARIO 2: POLICY (Sales Policy)
-      if (lowerName.includes('csbh') || lowerName.includes('policy') || lowerName.includes('chinh sach')) {
-          return `
-[OCR EXTRACT - CHÍNH SÁCH BÁN HÀNG T10/2024]:
-- Tặng 2 năm phí quản lý.
-- Gói nội thất: 200 Triệu (Trừ trực tiếp vào giá).
-- Hỗ trợ lãi suất: 0% trong 24 tháng (Ân hạn nợ gốc).
-- Ngân hàng chỉ định: Vietcombank, Public Bank.
-          `;
-      }
-      // SCENARIO 3: LEGAL
-      if (lowerName.includes('phap ly') || lowerName.includes('legal') || lowerName.includes('gp')) {
-          return `
-[OCR EXTRACT - HỒ SƠ PHÁP LÝ]:
-- Giấy phép xây dựng số: 123/GPXD cấp ngày 15/01/2024.
-- Quy hoạch 1/500: Đã phê duyệt.
-- Tình trạng đất: Đất ở đô thị, sở hữu lâu dài.
-- Nghĩa vụ thuế: Đã hoàn tất đóng thuế sử dụng đất đợt 1.
-          `;
-      }
-      return `[OCR CONTENT]: Tài liệu "${fileName}" chứa thông tin chung về mặt bằng tầng điển hình và danh mục vật liệu bàn giao (Duravit, Hafele).`;
+      return `[OCR CONTENT]: Tài liệu "${fileName}".`;
   },
 
   addDocument: (doc: KnowledgeDocument) => {

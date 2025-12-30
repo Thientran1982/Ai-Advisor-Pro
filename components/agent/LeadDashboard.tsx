@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Lead, MarketIntel } from '../../types';
+import { Lead, MarketIntel, Project } from '../../types';
 import { 
   Phone, Search, Plus, MessageCircle, TrendingUp, Globe, 
   Layers, Clock, MoreHorizontal, ExternalLink, 
   LayoutList, KanbanSquare, Ghost, UserPlus, Check, ArrowRight, Target, Zap, AlertTriangle,
-  Tag, Compass, ShieldCheck, DollarSign, BrainCircuit, Command, Sparkles, LineChart, Landmark, Info
+  Tag, Compass, ShieldCheck, DollarSign, BrainCircuit, Command, Sparkles, LineChart, Landmark, Info, Share2, Filter
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Cell
@@ -39,32 +39,28 @@ interface StatCardProps {
     label: string;
     trend?: string;
     trendUp?: boolean;
-    subValue?: string;
+    // Removed subValue for minimalism
 }
 
-// Modern Stat Card
-const StatCard: React.FC<StatCardProps> = ({ icon: Icon, colorClass, bgClass, value, label, trend, trendUp, subValue }) => (
-    <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-lg transition-all duration-300 group hover:-translate-y-1 h-full flex flex-col justify-between">
+// 🔥 UI FIX: Minimalist Stat Card
+const StatCard: React.FC<StatCardProps> = ({ icon: Icon, colorClass, bgClass, value, label, trend, trendUp }) => (
+    <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 group hover:-translate-y-1 h-full flex flex-col justify-between">
         <div>
-            <div className="flex justify-between items-start mb-4">
-                <div className={`p-3 rounded-2xl ${bgClass} ${colorClass} group-hover:scale-110 transition-transform shadow-sm`}>
-                    <Icon size={22} strokeWidth={2.5}/>
+            <div className="flex justify-between items-start mb-3">
+                <div className={`p-2.5 rounded-xl ${bgClass} ${colorClass} group-hover:scale-105 transition-transform`}>
+                    <Icon size={20} strokeWidth={2.5}/>
                 </div>
                 {trend && (
                     <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full ${trendUp ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                        {trendUp ? <TrendingUp size={12}/> : <TrendingUp size={12} className="rotate-180"/>} {trend}
+                        {trendUp ? <TrendingUp size={10}/> : <TrendingUp size={10} className="rotate-180"/>} {trend}
                     </div>
                 )}
             </div>
-            <p className="text-3xl font-black text-slate-900 tracking-tight leading-none mb-1.5">{value}</p>
+            <p className="text-3xl font-black text-slate-900 tracking-tight leading-none mb-1">{value}</p>
         </div>
-        <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                {label}
-                {label.includes('Lãi suất') && <Info size={10} className="text-slate-300 cursor-help" title="Lãi suất thả nổi trung bình sau ưu đãi (Tham khảo)" />}
-            </p>
-            {subValue && <p className="text-[10px] text-slate-400 mt-1 font-medium">{subValue}</p>}
-        </div>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mt-1">
+            {label}
+        </p>
     </div>
 );
 
@@ -75,10 +71,12 @@ interface StrategyTask {
     desc: string;
     action: string;
     priority: 'high' | 'medium' | 'low';
+    filterKeywords?: string; // NEW: Enable auto-filtering
 }
 
 // 🧠 AGENTIC ENGINE: AUTONOMOUS TASK GENERATION
-const StrategicCommand = ({ marketTrend, leads, onNavigate }: { marketTrend: string, leads: Lead[], onNavigate?: (view: any) => void }) => {
+// UPDATED: Now accepts `onFilter` to control the dashboard view
+const StrategicCommand = ({ marketTrend, leads, onNavigate, onFilter }: { marketTrend: string, leads: Lead[], onNavigate?: (view: any) => void, onFilter: (keyword: string) => void }) => {
     const [activeTask, setActiveTask] = useState<number | null>(null);
     const [isExecuting, setIsExecuting] = useState(false);
     
@@ -99,8 +97,9 @@ const StrategicCommand = ({ marketTrend, leads, onNavigate }: { marketTrend: str
                 type: 'risk',
                 title: 'BÁO ĐỘNG: Khách VIP Cần Chăm Sóc',
                 desc: `Phát hiện ${staleLeads.length} khách tiềm năng đang bị bỏ quên quá 48h. Cần tương tác lại ngay để duy trì sự quan tâm.`,
-                action: 'Kích hoạt quy trình hâm nóng',
-                priority: 'high'
+                action: 'Lọc danh sách khách VIP',
+                priority: 'high',
+                filterKeywords: 'urgent' // Trigger filter
             });
         }
 
@@ -113,8 +112,9 @@ const StrategicCommand = ({ marketTrend, leads, onNavigate }: { marketTrend: str
                     type: 'opportunity',
                     title: "Chiến thuật: Đầu Tư Giá Trị",
                     desc: `Thị trường đang điều chỉnh. Có ${investors.length} nhà đầu tư sẵn sàng. Hãy giới thiệu danh mục tài sản giá tốt (Undervalued Assets) để kích cầu.`,
-                    action: 'Gửi danh sách tài sản giá tốt',
-                    priority: 'medium'
+                    action: 'Lọc nhóm Nhà đầu tư',
+                    priority: 'medium',
+                    filterKeywords: 'đầu tư'
                 });
             }
         } else {
@@ -123,32 +123,21 @@ const StrategicCommand = ({ marketTrend, leads, onNavigate }: { marketTrend: str
                 type: 'opportunity',
                 title: "Chiến thuật: Đón Sóng Hạ Tầng",
                 desc: "Thị trường đang ấm lên. Đề xuất gửi tin nhắn cập nhật tiến độ hạ tầng để thúc đẩy quyết định đầu tư.",
-                action: 'Triển khai Campaign Thông Tin',
+                action: 'Mở tab Chiến dịch',
                 priority: 'medium'
             });
         }
 
         // 3. Performance Review (Management)
-        const conversionRate = leads.length > 0 ? (leads.filter(l => l.status === 'deposited').length / leads.length) : 0;
-        if (conversionRate < 0.1 && leads.length > 5) {
-             tasks.push({
-                id: 3,
-                type: 'management',
-                title: "Tối ưu hóa Kịch bản Tư vấn",
-                desc: `Tỷ lệ chuyển đổi cần cải thiện (${(conversionRate * 100).toFixed(1)}%). AI đề xuất điều chỉnh kịch bản theo nhóm tính cách DISC.`,
-                action: 'Huấn luyện lại AI Agent',
-                priority: 'low'
-            });
-        } else {
-             tasks.push({
-                id: 3,
-                type: 'management',
-                title: "Báo cáo Hiệu suất Tuần",
-                desc: "Hệ thống vận hành ổn định. AI đang tự động phân loại khách hàng tiềm năng.",
-                action: 'Xem báo cáo chi tiết',
-                priority: 'low'
-            });
-        }
+        tasks.push({
+            id: 3,
+            type: 'management',
+            title: "Khách hàng mới tuần này",
+            desc: "Kiểm tra danh sách các khách hàng mới tiếp nhận để đảm bảo không sót thông tin.",
+            action: 'Lọc khách mới',
+            priority: 'low',
+            filterKeywords: 'new'
+        });
 
         return tasks;
     }, [leads, marketTrend]);
@@ -161,24 +150,14 @@ const StrategicCommand = ({ marketTrend, leads, onNavigate }: { marketTrend: str
         setTimeout(() => {
             setIsExecuting(false);
             
-            if (task.action.includes('Campaign')) {
-                if (onNavigate) {
-                    onNavigate('campaigns'); // SWITCH TAB
-                }
-            } else if (task.action === 'Xem báo cáo chi tiết') {
-                dataService.addNotification({
-                    id: `report_${Date.now()}`,
-                    type: 'system',
-                    title: 'Báo cáo đã sẵn sàng',
-                    message: 'AI đã tổng hợp xong báo cáo hiệu suất tuần. Bạn có thể tải về ngay.',
-                    time: new Date(),
-                    read: false
-                });
-                alert("Đã tạo báo cáo thành công! Vui lòng kiểm tra mục Thông báo.");
-            } else {
-                alert(`AI Agent đang thực thi: ${task.action}. Đã thêm vào lịch trình làm việc.`);
-            }
-        }, 1200);
+            if (task.action.includes('Campaign') || task.action.includes('Chiến dịch')) {
+                if (onNavigate) onNavigate('campaigns');
+            } else if (task.filterKeywords) {
+                // 🔥 TRIGGER THE FILTER IN PARENT
+                onFilter(task.filterKeywords);
+            } 
+            // Removed alert() to keep it clean.
+        }, 800);
     };
 
     return (
@@ -246,7 +225,7 @@ const StrategicCommand = ({ marketTrend, leads, onNavigate }: { marketTrend: str
                                 <div className="mt-auto pt-4">
                                     <button className={`w-full py-3 rounded-xl text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${activeTask === task.id ? 'bg-white text-indigo-900 shadow-lg' : 'bg-white/10 text-slate-300 group-hover:bg-white group-hover:text-slate-900'}`}>
                                         {isExecuting && activeTask === task.id ? <Sparkles size={14} className="animate-spin"/> : <ArrowRight size={14}/>}
-                                        {isExecuting && activeTask === task.id ? 'Đang triển khai...' : task.action}
+                                        {isExecuting && activeTask === task.id ? 'Đang thực thi...' : task.action}
                                     </button>
                                 </div>
                             </div>
@@ -262,10 +241,16 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
   const [viewMode, setViewMode] = useState<'list' | 'board'>('board'); 
   const [searchTerm, setSearchTerm] = useState('');
   const [marketIntel, setMarketIntel] = useState<MarketIntel | null>(null);
-  const [liveContext, setLiveContext] = useState<any>(null); // Real-time financial data
+  const [liveContext, setLiveContext] = useState<any>(dataService.getLiveMarketContext());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  
+  // ADD LEAD MODAL STATE
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newLeadForm, setNewLeadForm] = useState<Partial<Lead>>({ name: '', phone: '', projectInterest: '', status: 'new', priority: 'medium', needs: '' });
+  const [projects, setProjects] = useState<Project[]>([]);
+  // Enhanced Form State
+  const [newLeadForm, setNewLeadForm] = useState<Partial<Lead>>({ 
+      name: '', phone: '', projectInterest: '', status: 'new', priority: 'medium', needs: '', budget: '', purpose: 'đầu tư' 
+  });
   
   // DRAG AND DROP STATE
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
@@ -274,9 +259,21 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
   // 1. DATA SYNC ON MOUNT
   useEffect(() => { 
       // Fetch Heavy AI Intel
-      fetchMarketIntelligence().then(data => { if(data) setMarketIntel(data); }); 
-      // Fetch Instant Financial Data
-      setLiveContext(dataService.getLiveMarketContext());
+      fetchMarketIntelligence().then(data => { 
+          if(data) {
+              setMarketIntel(data);
+              // MERGE AI DATA INTO LIVE CONTEXT
+              setLiveContext((prev: any) => ({
+                  ...prev,
+                  gold: data.goldPrice || "N/A",
+                  usd: data.usdRate || "N/A",
+                  rates: { floating: data.floatingRate || "10.5%" },
+                  trend: data.sentimentLabel === 'Positive' ? 'up' : 'down' // Infer trend
+              }));
+          }
+      }); 
+      // Get Projects for Dropdown
+      setProjects(dataService.getProjects());
   }, []);
 
   // 2. REAL-TIME CALCULATION ENGINE
@@ -303,16 +300,37 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
       };
   }, [leads]);
 
-  const filteredLeads = leads.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase()) || l.phone.includes(searchTerm));
+  // SMART SEARCH & FILTER LOGIC
+  const filteredLeads = leads.filter(l => {
+      const term = searchTerm.toLowerCase();
+      // Special AI Command keywords mapping
+      if (term === 'urgent') return l.priority === 'urgent' || l.priority === 'high';
+      if (term === 'new') return l.status === 'new';
+      if (term === 'đầu tư' || term === 'invest') return l.purpose === 'đầu tư';
+      
+      // Standard search
+      return l.name.toLowerCase().includes(term) || l.phone.includes(term) || l.projectInterest.toLowerCase().includes(term);
+  });
 
   const handleCreateLead = () => {
       if (onAddLead && newLeadForm.name && newLeadForm.phone) {
           onAddLead({
-              id: `manual_${Date.now()}`, tenantId: 'current', name: newLeadForm.name, phone: newLeadForm.phone,
-              projectInterest: newLeadForm.projectInterest || 'Chưa rõ', needs: newLeadForm.needs || 'Khách thêm thủ công',
-              budget: newLeadForm.budget || 'Chưa xác định', status: 'new', priority: 'medium', createdAt: new Date(), userType: 'individual', purpose: 'đầu tư'
+              id: `manual_${Date.now()}`, 
+              tenantId: 'current', 
+              name: newLeadForm.name, 
+              phone: newLeadForm.phone,
+              projectInterest: newLeadForm.projectInterest || 'Chưa rõ', 
+              needs: newLeadForm.needs || 'Khách thêm thủ công',
+              budget: newLeadForm.budget || 'Chưa xác định', 
+              status: 'new', 
+              priority: newLeadForm.priority as any || 'medium', 
+              createdAt: new Date(), 
+              userType: 'individual', 
+              purpose: newLeadForm.purpose as any || 'đầu tư'
           });
-          setIsAddModalOpen(false); setNewLeadForm({ name: '', phone: '', projectInterest: '', status: 'new', priority: 'medium', needs: '' });
+          setIsAddModalOpen(false); 
+          // Reset form
+          setNewLeadForm({ name: '', phone: '', projectInterest: '', status: 'new', priority: 'medium', needs: '', budget: '', purpose: 'đầu tư' });
       }
   };
 
@@ -334,6 +352,19 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
       setDragOverColumn(null);
       setDraggedLeadId(null);
       if (id && onUpdateLead) onUpdateLead(id, status as Lead['status']);
+  };
+
+  // 🔥 QUICK ACTION: SHARE PROFILE (When Empty)
+  const handleShareProfile = () => {
+      if (onSimulateClientView) onSimulateClientView();
+  };
+
+  // Auto-Filter from Command Center
+  const handleCommandFilter = (keyword: string) => {
+      setSearchTerm(keyword);
+      // Smooth scroll to board
+      const boardElement = document.getElementById('crm-board');
+      if(boardElement) boardElement.scrollIntoView({ behavior: 'smooth' });
   };
 
   return (
@@ -366,7 +397,7 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
 
       {/* 🧠 2. AGENTIC CORE: STRATEGIC COMMAND CENTER */}
       {/* Passes REAL leads data to the brain for analysis */}
-      <StrategicCommand marketTrend={liveContext?.trend || "down"} leads={leads} onNavigate={onNavigate} />
+      <StrategicCommand marketTrend={liveContext?.trend || "down"} leads={leads} onNavigate={onNavigate} onFilter={handleCommandFilter} />
 
       {/* 3. STATS OVERVIEW (REAL DATA) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
@@ -374,18 +405,16 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
             icon={Layers} bgClass="bg-indigo-50" colorClass="text-indigo-600" 
             value={stats.total} label="Tổng Leads" trend="Hoạt động" trendUp={true} 
           />
-          {/* UPDATED: Replaced abstract Sentiment Score with Verifiable Floating Interest Rate */}
+          {/* UPDATED: Minimalist cards - removed subValue */}
           <StatCard 
             icon={Landmark} bgClass="bg-emerald-50" colorClass="text-emerald-600" 
             value={liveContext?.rates?.floating || "10.5%"} 
-            label="Lãi suất thả nổi (TB)" 
+            label="Lãi suất thả nổi" 
             trend="Ổn định" trendUp={true} 
-            subValue="Dữ liệu tham chiếu ngân hàng"
           />
           <StatCard 
             icon={Clock} bgClass="bg-amber-50" colorClass="text-amber-600" 
             value={stats.urgent} label="Cần xử lý gấp" 
-            subValue="Lead quan tâm cao"
           />
           <StatCard 
             icon={TrendingUp} bgClass="bg-rose-50" colorClass="text-rose-600" 
@@ -393,8 +422,6 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
             trend="Thực tế" trendUp={parseFloat(stats.conversionRate) > 0}
           />
       </div>
-
-      {/* ... rest of the component remains similar ... */}
       
       {/* 4. CHARTS & NEWS */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-10">
@@ -445,7 +472,7 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
       </div>
 
       {/* 5. CRM TOOLBAR */}
-      <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4 sticky top-0 z-20 bg-[#FAFAFA]/95 backdrop-blur py-3">
+      <div id="crm-board" className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4 sticky top-0 z-20 bg-[#FAFAFA]/95 backdrop-blur py-3">
            <div className="relative group w-full sm:w-96">
                 <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
                 <input 
@@ -455,6 +482,12 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
                     onChange={(e) => setSearchTerm(e.target.value)} 
                     className="w-full pl-11 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl text-sm font-semibold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 outline-none transition-all shadow-sm" 
                 />
+                {/* Clear Filter Button */}
+                {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                        <span className="text-[10px] font-bold bg-slate-100 px-2 py-1 rounded">Xóa lọc</span>
+                    </button>
+                )}
            </div>
            
            <div className="flex gap-1 p-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm">
@@ -506,10 +539,17 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
                     </div>
                 </div>
              ))}
+             {/* 🔥 BETTER EMPTY STATE: ACTIONABLE 🔥 */}
              {filteredLeads.length === 0 && (
-                 <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
-                     <Ghost size={48} className="mx-auto text-slate-300 mb-4"/>
-                     <p className="text-slate-500 font-medium">Không tìm thấy khách hàng nào.</p>
+                 <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200 animate-in fade-in zoom-in-95">
+                     <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Share2 size={32} className="text-indigo-500"/>
+                     </div>
+                     <h4 className="text-lg font-bold text-slate-900">Không tìm thấy khách hàng</h4>
+                     <p className="text-slate-500 font-medium mb-6 max-w-xs mx-auto">Thử từ khóa khác hoặc chia sẻ hồ sơ để AI tìm khách mới.</p>
+                     <button onClick={handleShareProfile} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center gap-2 mx-auto">
+                        <ExternalLink size={18}/> Mở Hồ Sơ & Chia Sẻ
+                     </button>
                  </div>
              )}
           </div>
@@ -544,8 +584,8 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
                         {/* Draggable Area */}
                         <div className="px-3 pb-3 flex-1 overflow-y-auto custom-scrollbar space-y-3">
                             {items.length === 0 ? (
-                                <div className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400">
-                                    <span className="text-xs font-medium">Trống</span>
+                                <div className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-slate-200/50 rounded-2xl text-slate-400">
+                                    <span className="text-xs font-medium">Kéo thả vào đây</span>
                                 </div>
                             ) : (
                                 items.map(lead => (
@@ -605,32 +645,74 @@ const LeadDashboard: React.FC<LeadDashboardProps> = ({ leads, onAddLead, onUpdat
 
       {selectedLead && <LeadDetailModal lead={selectedLead} onClose={() => setSelectedLead(null)} />}
 
-      {/* Add Lead Modal */}
+      {/* Add Lead Modal - UPGRADED */}
       {isAddModalOpen && (
           <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in zoom-in-95">
               <div className="bg-white rounded-[32px] w-full max-w-md p-8 shadow-2xl relative overflow-hidden">
-                  <div className="text-center mb-8">
-                      <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
-                          <UserPlus size={32} />
+                  <div className="text-center mb-6">
+                      <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-3 shadow-inner">
+                          <UserPlus size={28} />
                       </div>
                       <h3 className="font-black text-2xl text-slate-900">Thêm Khách Mới</h3>
-                      <p className="text-sm text-slate-500 mt-1">Nhập thông tin để AI bắt đầu phân tích</p>
+                      <p className="text-sm text-slate-500 mt-1">Dữ liệu đầy đủ giúp AI tư vấn chính xác hơn</p>
                   </div>
                   
-                  <div className="space-y-5 relative z-10">
-                      <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-500 uppercase ml-1">Tên khách hàng</label>
-                          <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-indigo-500 focus:bg-white transition-colors" value={newLeadForm.name} onChange={e => setNewLeadForm({...newLeadForm, name: e.target.value})} placeholder="VD: Anh Nam" autoFocus />
+                  <div className="space-y-4 relative z-10">
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 block mb-1">Tên khách hàng</label>
+                              <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 transition-colors" value={newLeadForm.name} onChange={e => setNewLeadForm({...newLeadForm, name: e.target.value})} placeholder="VD: Anh Nam" autoFocus />
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 block mb-1">Số điện thoại</label>
+                              <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 transition-colors" value={newLeadForm.phone} onChange={e => setNewLeadForm({...newLeadForm, phone: e.target.value})} placeholder="09..." />
+                          </div>
                       </div>
-                      <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-500 uppercase ml-1">Số điện thoại</label>
-                          <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-indigo-500 focus:bg-white transition-colors" value={newLeadForm.phone} onChange={e => setNewLeadForm({...newLeadForm, phone: e.target.value})} placeholder="0909..." />
+
+                      <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 block mb-1">Dự án quan tâm</label>
+                          <div className="relative">
+                              <select 
+                                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500 appearance-none"
+                                  value={newLeadForm.projectInterest}
+                                  onChange={e => setNewLeadForm({...newLeadForm, projectInterest: e.target.value})}
+                              >
+                                  <option value="">-- Chọn dự án --</option>
+                                  {projects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                  <option value="Khác">Dự án khác</option>
+                              </select>
+                              <Filter size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                          </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 block mb-1">Ngân sách (Tỷ)</label>
+                              <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500" value={newLeadForm.budget} onChange={e => setNewLeadForm({...newLeadForm, budget: e.target.value})} placeholder="VD: 5 Tỷ" />
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 block mb-1">Mức độ ưu tiên</label>
+                              <select 
+                                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500"
+                                  value={newLeadForm.priority}
+                                  onChange={e => setNewLeadForm({...newLeadForm, priority: e.target.value as any})}
+                              >
+                                  <option value="medium">Bình thường</option>
+                                  <option value="high">Cao</option>
+                                  <option value="urgent">Rất gấp (VIP)</option>
+                              </select>
+                          </div>
+                      </div>
+
+                      <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 block mb-1">Ghi chú nhu cầu</label>
+                          <textarea className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-sm outline-none focus:border-indigo-500 h-20 resize-none" value={newLeadForm.needs} onChange={e => setNewLeadForm({...newLeadForm, needs: e.target.value})} placeholder="VD: Mua đầu tư, thích tầng cao..." />
                       </div>
                       
-                      <button onClick={handleCreateLead} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-indigo-600 transition-all shadow-xl shadow-slate-200 mt-4 flex items-center justify-center gap-2 active:scale-95">
+                      <button onClick={handleCreateLead} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-indigo-600 transition-all shadow-xl shadow-slate-200 mt-2 flex items-center justify-center gap-2 active:scale-95">
                           <Check size={20} /> Tạo Hồ Sơ
                       </button>
-                      <button onClick={() => setIsAddModalOpen(false)} className="w-full py-3 text-slate-400 text-sm font-bold hover:text-slate-600 transition-colors">Đóng lại</button>
+                      <button onClick={() => setIsAddModalOpen(false)} className="w-full py-3 text-slate-400 text-xs font-bold hover:text-slate-600 transition-colors">Đóng lại</button>
                   </div>
               </div>
           </div>

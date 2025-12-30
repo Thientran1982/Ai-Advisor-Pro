@@ -29,8 +29,15 @@ export interface Message {
 }
 
 // NEW: SWARM INTELLIGENCE TYPES
-// UPDATED: Added 'Storyteller' (Narrative Designer)
-export type AgentRole = 'Manager' | 'Strategist' | 'Psychologist' | 'Copywriter' | 'RiskOfficer' | 'Negotiator' | 'Valuation' | 'Stylist' | 'Insider' | 'Closer' | 'Profiler' | 'Lifestyle' | 'Skeptic' | 'WealthStructurer' | 'Curator' | 'TimingArchitect' | 'Storyteller';
+// REFACTORED: Only keep roles active in LangGraph Architecture
+export type AgentRole = 
+    | 'Manager'          // Supervisor / Router
+    | 'Psychologist'     // DISC Analysis
+    | 'ValuationExpert'  // Pricing & CMA
+    | 'RiskOfficer'      // Legal & Risk
+    | 'WealthStructurer' // Finance & Cashflow
+    | 'Storyteller'      // Final Script Writer
+    | 'MarketInsider';   // Market Trends (Optional)
 
 export interface SwarmStep {
     agentName: string; 
@@ -223,6 +230,9 @@ export interface MarketIntel {
   sentimentScore: number;
   sentimentLabel: string;
   trendSummary: string;
+  goldPrice?: string; // NEW
+  usdRate?: string; // NEW
+  floatingRate?: string; // NEW
   topNews: {
     title: string;
     source: string;

@@ -135,7 +135,8 @@ export const authService = {
     return { success: false, message: 'Email hoặc mật khẩu không đúng.' };
   },
 
-  resetPassword: (email: string): { success: boolean, message: string } => {
+  // STEP 1: Request OTP
+  requestPasswordReset: (email: string): { success: boolean, message: string } => {
       const cleanEmail = email.trim().toLowerCase();
       
       if (!validators.email(cleanEmail)) {
@@ -143,17 +144,37 @@ export const authService = {
       }
 
       const users = authService.getUsers();
-      // Logic check: User must exist to reset
       const user = users.find(u => u.email === cleanEmail);
       
       if (!user) {
-          // Security Best Practice: Don't explicitly reveal user doesn't exist, 
-          // but for this internal tool/demo, clarity is better.
-          return { success: false, message: 'Email này chưa được đăng ký trong hệ thống.' };
+          // Security: In production, do not reveal if email exists. But for demo, we warn the user.
+          return { success: false, message: 'Email này chưa được đăng ký.' };
       }
       
-      // Simulation of Email sending
-      return { success: true, message: `Hệ thống đã gửi link đặt lại mật khẩu đến ${cleanEmail}. Vui lòng kiểm tra hộp thư.` };
+      return { success: true, message: `Mã xác nhận đã được gửi đến ${cleanEmail}. (Mã demo: 123456)` };
+  },
+
+  // STEP 2: Confirm & Change Password
+  confirmPasswordReset: (email: string, otp: string, newPass: string): { success: boolean, message: string } => {
+      // Mock OTP verification
+      if (otp !== '123456') {
+          return { success: false, message: 'Mã xác nhận không đúng.' };
+      }
+
+      if (!validators.password(newPass)) {
+          return { success: false, message: 'Mật khẩu mới quá yếu.' };
+      }
+
+      const users = authService.getUsers();
+      const index = users.findIndex(u => u.email === email.trim().toLowerCase());
+      
+      if (index !== -1) {
+          users[index].password = mockHash(newPass);
+          localStorage.setItem(USERS_KEY, JSON.stringify(users));
+          return { success: true, message: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.' };
+      }
+
+      return { success: false, message: 'Có lỗi xảy ra. Vui lòng thử lại.' };
   },
 
   logout: () => {

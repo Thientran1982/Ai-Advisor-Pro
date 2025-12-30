@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Check, ArrowRight, MessageSquare, Globe, Users, Play, CreditCard, ChevronDown, ChevronUp, Scale, Compass, Tag, Star, HeartHandshake, Menu, X, Zap,
-  Database, BrainCircuit, LineChart, ShieldCheck, Target
+  Check, ArrowRight, Globe, Users, Play, ChevronDown, ChevronUp, Menu, X, Zap,
+  Database, BrainCircuit, LineChart, Star, ShieldCheck
 } from 'lucide-react';
 import BrandLogo from '../common/BrandLogo';
 
@@ -14,7 +14,6 @@ interface LandingPageProps {
 }
 
 const TypewriterEffect = () => {
-    // REFINED: Focus on Human Actions enabled by Data
     const words = ["Xây Dựng Niềm Tin", "Thấu Hiểu Khách Hàng", "Tư Vấn Có Cơ Sở", "Nâng Tầm Vị Thế"];
     const [index, setIndex] = useState(0);
     const [subIndex, setSubIndex] = useState(0);
@@ -42,14 +41,29 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false); 
   
-  // DYNAMIC DATE CALCULATIONS FOR REAL-TIME FEEL
+  // ANIMATION STATE FOR HERO MOCKUP
+  const [mockupStep, setMockupStep] = useState(0);
+
+  // DYNAMIC DATE CALCULATIONS
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
   const currentYear = now.getFullYear();
-  const currentQuarter = Math.ceil(currentMonth / 3);
   const timeString = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
   
-  useEffect(() => { const handleScroll = () => setScrolled(window.scrollY > 20); window.addEventListener('scroll', handleScroll); return () => window.removeEventListener('scroll', handleScroll); }, []);
+  useEffect(() => { 
+      const handleScroll = () => setScrolled(window.scrollY > 20); 
+      window.addEventListener('scroll', handleScroll); 
+      
+      // Sequence Animation for Hero Mockup
+      const timer1 = setTimeout(() => setMockupStep(1), 1000); // Show User Question
+      const timer2 = setTimeout(() => setMockupStep(2), 2500); // Show AI Processing
+      const timer3 = setTimeout(() => setMockupStep(3), 4500); // Show AI Answer
+
+      return () => {
+          window.removeEventListener('scroll', handleScroll);
+          clearTimeout(timer1); clearTimeout(timer2); clearTimeout(timer3);
+      }; 
+  }, []);
   
   const toggleFaq = (index: number) => { setOpenFaq(openFaq === index ? null : index); };
   
@@ -60,10 +74,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
   };
 
   const FAQS = [
-      { q: "Advisor Pro giúp gì cho công việc của tôi?", a: "Advisor đóng vai trò là trợ lý số liệu (Paraplanner) của bạn. Hệ thống xử lý các tính toán phức tạp, tra cứu pháp lý và tổng hợp tin tức, giúp bạn có thêm thời gian để tập trung vào việc chăm sóc và xây dựng mối quan hệ với khách hàng." },
-      { q: "Dữ liệu của hệ thống có đáng tin cậy không?", a: "Hệ thống tổng hợp dữ liệu từ các nguồn chính thống và cập nhật Real-time. Tuy nhiên, vai trò của bạn là người kiểm chứng cuối cùng và truyền tải nó một cách khéo léo nhất đến khách hàng." },
-      { q: "Tôi không rành công nghệ có dùng được không?", a: "Rất dễ dàng. Chúng tôi thiết kế Advisor như một người trợ lý biết lắng nghe. Bạn chỉ cần chat tự nhiên, hệ thống sẽ chuẩn bị các tài liệu cần thiết để bạn gửi cho khách." },
-      { q: "Gói Pro mang lại lợi thế gì?", a: "Gói Pro cung cấp 'Góc Nhìn Chiến Lược'. Thay vì chỉ cung cấp thông tin thô, AI sẽ gợi ý các góc nhìn phân tích sâu sắc để bạn tham khảo, từ đó đưa ra lời khuyên đắt giá cho khách hàng." }
+      { q: "Advisor Pro giúp gì cho công việc của tôi?", a: "Advisor đóng vai trò là 'Paraplanner' (Trợ lý nghiệp vụ) của bạn. Hệ thống xử lý các tính toán dòng tiền, tra cứu pháp lý và tổng hợp tin tức vĩ mô chỉ trong 3 giây, giúp bạn dành 100% thời gian để xây dựng mối quan hệ với khách hàng." },
+      { q: "Dữ liệu của hệ thống có đáng tin cậy không?", a: "Hệ thống kết hợp dữ liệu Real-time từ các nguồn chính thống (CafeF, Batdongsan.com.vn, Big4 Bank) và dữ liệu dự án được kiểm chứng bởi đội ngũ chuyên gia. Chúng tôi cam kết minh bạch nguồn tin." },
+      { q: "Tôi không rành công nghệ có dùng được không?", a: "Rất dễ dàng. Chúng tôi thiết kế Advisor như một ứng dụng nhắn tin quen thuộc (giống Zalo). Bạn chỉ cần hỏi bằng giọng nói hoặc tin nhắn, AI sẽ lo phần còn lại." },
+      { q: "Gói Pro mang lại lợi thế gì?", a: "Gói Pro cung cấp 'Lợi Thế Chiến Lược': Bảng phân tích dòng tiền chuyên sâu, Dự báo tăng giá Monte Carlo và Tra cứu quy hoạch. Đây là những công cụ giúp bạn chốt deal các khách hàng khó tính nhất." }
   ];
 
   return (
@@ -115,22 +129,28 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
           </button>
         </div>
 
-        {/* MOBILE MENU DRAWER */}
-        <div className={`fixed inset-0 bg-white z-40 flex flex-col pt-24 px-6 transition-all duration-300 md:hidden ${mobileMenuOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'}`}>
-            <div className="flex flex-col gap-6 text-lg font-bold text-slate-800">
-                <button onClick={() => scrollToSection('features')} className="py-2 border-b border-slate-100 text-left">Tính năng nổi bật</button>
-                <button onClick={() => { onTryDemo(); setMobileMenuOpen(false); }} className="py-2 border-b border-slate-100 text-left">Xem Demo Trực tiếp</button>
-                <button onClick={() => scrollToSection('pricing')} className="py-2 border-b border-slate-100 text-left">Bảng giá</button>
-                <button onClick={() => scrollToSection('faq')} className="py-2 border-b border-slate-100 text-left">Hỏi đáp</button>
-            </div>
+        {/* MOBILE MENU DRAWER WITH BACKDROP */}
+        <div className={`fixed inset-0 z-40 transition-all duration-300 md:hidden ${mobileMenuOpen ? 'visible' : 'invisible'}`}>
+            {/* Backdrop */}
+            <div className={`absolute inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity duration-300 ${mobileMenuOpen ? 'opacity-100' : 'opacity-0'}`} onClick={() => setMobileMenuOpen(false)}></div>
             
-            <div className="mt-auto mb-8 flex flex-col gap-4">
-                <button onClick={() => { onRegister('free'); setMobileMenuOpen(false); }} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-center shadow-lg shadow-indigo-200">
-                    Bắt đầu miễn phí
-                </button>
-                <button onClick={() => { onLogin(); setMobileMenuOpen(false); }} className="w-full py-4 bg-slate-100 text-slate-700 rounded-xl font-bold text-center">
-                    Đăng nhập
-                </button>
+            {/* Drawer */}
+            <div className={`absolute right-0 top-0 bottom-0 w-[80%] max-w-sm bg-white shadow-2xl transition-transform duration-300 flex flex-col pt-24 px-6 ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+                <div className="flex flex-col gap-6 text-lg font-bold text-slate-800">
+                    <button onClick={() => scrollToSection('features')} className="py-2 border-b border-slate-100 text-left">Tính năng nổi bật</button>
+                    <button onClick={() => { onTryDemo(); setMobileMenuOpen(false); }} className="py-2 border-b border-slate-100 text-left">Xem Demo Trực tiếp</button>
+                    <button onClick={() => scrollToSection('pricing')} className="py-2 border-b border-slate-100 text-left">Bảng giá</button>
+                    <button onClick={() => scrollToSection('faq')} className="py-2 border-b border-slate-100 text-left">Hỏi đáp</button>
+                </div>
+                
+                <div className="mt-auto mb-8 flex flex-col gap-4">
+                    <button onClick={() => { onRegister('free'); setMobileMenuOpen(false); }} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-center shadow-lg shadow-indigo-200">
+                        Bắt đầu miễn phí
+                    </button>
+                    <button onClick={() => { onLogin(); setMobileMenuOpen(false); }} className="w-full py-4 bg-slate-100 text-slate-700 rounded-xl font-bold text-center">
+                        Đăng nhập
+                    </button>
+                </div>
             </div>
         </div>
       </nav>
@@ -146,19 +166,19 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200/80 rounded-full shadow-sm hover:border-indigo-200 hover:shadow-md transition-all cursor-default max-w-full">
                  <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wide truncate">
-                     AI Advisor 5.5 - Trợ lý của Chuyên gia
+                     AI Advisor 6.0 - Trợ lý của Chuyên gia
                  </span>
               </div>
               
               {/* HEADLINE: Human-Centric */}
               <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold leading-[1.15] tracking-tight text-slate-900 break-words">
-                Nâng Tầm Vị Thế <br/>
-                Nhà Môi Giới Với<br/>
+                Biến Số Liệu Thành <br/>
+                Lợi Thế Cạnh Tranh<br/>
                 <div className="min-h-[1.3em] mt-2"><TypewriterEffect /></div>
               </h1>
               
               <p className="text-base md:text-xl text-slate-500 leading-relaxed max-w-lg font-medium">
-                Công cụ hỗ trợ toàn diện giúp bạn xử lý số liệu, pháp lý và thị trường trong tích tắc. <strong>Để bạn có thời gian làm điều quan trọng nhất: Thấu hiểu Khách hàng.</strong>
+                Ngừng tốn hàng giờ tìm kiếm thông tin rời rạc. Advisor AI tổng hợp dữ liệu pháp lý, quy hoạch và dòng tiền trong tích tắc. <strong>Để bạn tập trung vào điều quan trọng nhất: Chốt Deal.</strong>
               </p>
               
               <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
@@ -193,16 +213,16 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                     <div className="flex items-center gap-1 text-amber-500 mb-1">
                         {[1,2,3,4,5].map(i => <Star key={i} size={14} fill="currentColor"/>)}
                     </div>
-                    <p className="text-slate-600">Được tin dùng bởi <strong>5,000+</strong> Chuyên gia tại VN</p>
+                    <p className="text-slate-600">Được tin dùng bởi <strong>5,000+</strong> Chuyên gia BĐS</p>
                  </div>
               </div>
            </div>
            
-           {/* Modern Glass UI Mockup - 3D Perspective */}
-           <div className="relative animate-in fade-in slide-in-from-right-8 duration-1000 delay-200 hidden lg:block perspective-[2000px] group h-full min-h-[500px] flex items-center">
+           {/* Modern Glass UI Mockup - ANIMATED */}
+           <div className="relative animate-in fade-in slide-in-from-right-8 duration-1000 delay-200 hidden lg:block perspective-[2000px] group h-full min-h-[600px] flex items-center">
               <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-[40px] blur-3xl opacity-20 group-hover:opacity-30 transition-opacity duration-700"></div>
               <div className="relative w-full bg-white/60 backdrop-blur-xl rounded-[32px] shadow-2xl border border-white/50 p-6 transform rotate-y-[-8deg] rotate-x-[5deg] group-hover:rotate-0 transition-all duration-700 ease-out">
-                  <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-inner">
+                  <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-inner h-[480px] flex flex-col">
                       <div className="bg-slate-50/80 border-b border-slate-100 p-4 flex items-center justify-between">
                          <div className="flex items-center gap-3">
                             <BrandLogo size="sm" variant="icon" />
@@ -216,18 +236,33 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                             </div>
                          </div>
                       </div>
-                      <div className="p-6 space-y-6">
-                          <div className="flex gap-4">
-                             <div className="bg-slate-100 p-4 rounded-2xl rounded-tl-sm text-sm text-slate-600 max-w-[85%] shadow-sm leading-relaxed">
+                      <div className="p-6 space-y-6 flex-1 overflow-hidden relative">
+                          {/* USER MESSAGE - SEQ 1 */}
+                          <div className={`flex gap-4 flex-row-reverse transition-all duration-500 ${mockupStep >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                             <div className="bg-gradient-to-br from-indigo-600 to-blue-600 p-4 rounded-2xl rounded-br-sm text-sm text-white max-w-[85%] shadow-md leading-relaxed">
                                 Khách hàng Nam đang phân vân: "Liệu Eaton Park có bị ngáo giá không? So với Global City thì sao?"
                              </div>
                           </div>
-                          <div className="flex gap-4 flex-row-reverse">
-                             <div className="bg-gradient-to-br from-indigo-600 to-blue-600 p-5 rounded-2xl rounded-tr-sm shadow-xl shadow-indigo-200/50 text-sm text-white max-w-[95%] leading-relaxed">
-                                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/20">
-                                    <Database size={14} className="text-blue-300"/> 
-                                    {/* DYNAMIC DATE LABEL - REPLACES "Q1/2024" */}
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-100">
+
+                          {/* AI THINKING - SEQ 2 (Temporary) */}
+                          {mockupStep === 2 && (
+                              <div className="flex gap-2 items-center text-xs text-slate-400 pl-4 animate-pulse pt-4">
+                                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200"><BrandLogo variant="icon" size="sm"/></div>
+                                  <span>AI đang phân tích dữ liệu thị trường (CMA Model)...</span>
+                              </div>
+                          )}
+
+                          {/* AI RESPONSE - SEQ 3 */}
+                          <div className={`flex gap-4 transition-all duration-500 ${mockupStep >= 3 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                             <div className="flex-shrink-0 mt-1">
+                                <div className="w-8 h-8 rounded-full overflow-hidden bg-white shadow-sm border border-slate-100 p-1.5 flex items-center justify-center">
+                                    <BrandLogo variant="icon" size="sm" />
+                                </div>
+                             </div>
+                             <div className="bg-white border border-slate-100 p-5 rounded-2xl rounded-tl-sm shadow-lg text-sm text-slate-700 max-w-[95%] leading-relaxed">
+                                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-50">
+                                    <Database size={14} className="text-indigo-600"/> 
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                                         Phân tích thời gian thực (T{currentMonth}/{currentYear})
                                     </span>
                                 </div>
@@ -249,8 +284,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
          <div className="max-w-7xl mx-auto px-4 md:px-6">
             <div className="text-center mb-16 md:mb-24">
                <span className="text-indigo-600 font-bold text-xs uppercase tracking-[0.2em] mb-4 block">Hỗ trợ đắc lực</span>
-               <h2 className="text-3xl md:text-5xl font-black text-slate-900 mb-6 tracking-tight">Công Cụ Sắc Bén Cho <br/>Nhà Môi Giới Hiện Đại</h2>
-               <p className="text-slate-500 max-w-2xl mx-auto text-lg leading-relaxed">Kết hợp sự am hiểu của bạn với tốc độ của công nghệ.</p>
+               <h2 className="text-3xl md:text-5xl font-black text-slate-900 mb-6 tracking-tight">Giải Pháp Đột Phá Cho <br/>Nhà Môi Giới Hiện Đại</h2>
+               <p className="text-slate-500 max-w-2xl mx-auto text-lg leading-relaxed">Kết hợp kinh nghiệm của bạn với tốc độ của công nghệ.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -261,7 +296,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                   </div>
                   <h3 className="text-xl font-bold text-slate-900 mb-3">CRM Trợ Lực</h3>
                   <p className="text-slate-500 text-sm leading-relaxed">
-                      Giúp bạn ghi nhớ mọi chi tiết nhỏ về khách hàng. Hệ thống tự động nhắc lịch chăm sóc, để bạn luôn xuất hiện đúng lúc khách hàng cần.
+                      Quên việc ghi chép thủ công. Hệ thống tự động phân loại khách hàng, nhắc lịch chăm sóc và gợi ý kịch bản tư vấn phù hợp với từng tính cách (DISC).
                   </p>
                </div>
 
@@ -272,7 +307,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                   </div>
                   <h3 className="text-xl font-bold text-slate-900 mb-3">Bộ Công Cụ Tư Vấn</h3>
                   <p className="text-slate-500 text-sm leading-relaxed">
-                      Dễ dàng tạo bảng tính dòng tiền, so sánh dự án và tra cứu pháp lý trong 3 giây. Giúp lời tư vấn của bạn trở nên trực quan và thuyết phục hơn.
+                      Dễ dàng tạo bảng tính dòng tiền, so sánh dự án và tra cứu lãi suất ngân hàng trong 3 giây. Giúp lời tư vấn của bạn trở nên trực quan và thuyết phục hơn.
                   </p>
                </div>
 
@@ -283,7 +318,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                   </div>
                   <h3 className="text-xl font-bold text-slate-900 mb-3">Tham Mưu Chiến Lược</h3>
                   <p className="text-slate-500 text-sm leading-relaxed">
-                      Hệ thống liên tục cập nhật tin tức thị trường để cung cấp cho bạn những góc nhìn mới, giúp bạn luôn dẫn đầu trong các cuộc thảo luận với nhà đầu tư.
+                      Hệ thống liên tục cập nhật tin tức thị trường (Lãi suất, Vàng, Quy hoạch) để cung cấp cho bạn những góc nhìn mới, giúp bạn luôn dẫn đầu trong các cuộc thảo luận.
                   </p>
                </div>
             </div>
@@ -299,7 +334,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
          <div className="max-w-7xl mx-auto px-4 md:px-6 relative z-10">
             <div className="text-center mb-16 md:mb-24 text-white">
                <h2 className="text-3xl md:text-5xl font-black mb-6 tracking-tight">Đầu Tư Cho Sự Nghiệp Của Bạn</h2>
-               <p className="text-slate-400 max-w-2xl mx-auto text-lg">Chỉ bằng một ly cà phê mỗi ngày để sở hữu trợ lý đắc lực.</p>
+               <p className="text-slate-400 max-w-2xl mx-auto text-lg">Chỉ bằng một ly cà phê mỗi ngày để sở hữu đội ngũ trợ lý hùng hậu.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
@@ -326,9 +361,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                </div>
 
                {/* PRO PLAN */}
-               <div className="p-10 rounded-[40px] bg-gradient-to-b from-indigo-900/90 to-slate-900 border border-indigo-500/50 relative shadow-2xl shadow-indigo-900/50 overflow-hidden group flex flex-col">
+               <div className="p-10 rounded-[40px] bg-gradient-to-b from-indigo-900/90 to-slate-900 border border-indigo-500/50 relative shadow-2xl shadow-indigo-900/50 overflow-hidden group flex flex-col transform hover:-translate-y-1 transition-all duration-300">
                   <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-indigo-400 to-transparent opacity-50"></div>
-                  <div className="absolute top-6 right-8 bg-indigo-500 text-white text-[10px] font-black px-3 py-1 rounded-full tracking-widest uppercase shadow-lg shadow-indigo-500/30">PHỔ BIẾN</div>
+                  <div className="absolute top-6 right-8 bg-indigo-500 text-white text-[10px] font-black px-3 py-1 rounded-full tracking-widest uppercase shadow-lg shadow-indigo-500/30 animate-pulse">PHỔ BIẾN</div>
                   
                   <div className="mb-8">
                       <h3 className="text-xl font-bold text-white mb-2">Gói Chuyên Gia (Pro)</h3>
@@ -345,7 +380,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                          "Xây dựng Thương hiệu Cá nhân (Profile)", 
                          "Bộ công cụ: Định giá, Phong thủy, Pháp lý 5.5", 
                          "Campaign (Chăm sóc tự động hàng loạt)",
-                         "Cảnh báo rủi ro & Cơ hội thị trường"
+                         "Cảnh báo rủi ro & Cơ hội thị trường (Real-time)"
                      ].map((item, i) => (
                          <li key={i} className="flex items-center gap-3 text-sm text-white font-medium"><div className="p-1 bg-indigo-500 rounded-full shrink-0"><Check size={12} className="text-white"/></div> {item}</li>
                      ))}
@@ -372,13 +407,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogin, onRegister, onTryDem
                   <div key={idx} className="border border-slate-200 rounded-3xl overflow-hidden transition-all duration-300 hover:border-indigo-200">
                      <button 
                         onClick={() => toggleFaq(idx)}
-                        className="w-full flex items-center justify-between p-6 text-left bg-white hover:bg-slate-50 transition-colors"
+                        className="w-full flex items-center justify-between p-6 text-left bg-white hover:bg-slate-50 transition-colors group"
                      >
                         <span className="font-bold text-slate-900 text-lg pr-8 leading-snug">{item.q}</span>
-                        {openFaq === idx ? <ChevronUp className="text-indigo-600 shrink-0" /> : <ChevronDown className="text-slate-400 shrink-0" />}
+                        {openFaq === idx ? <ChevronUp className="text-indigo-600 shrink-0" /> : <ChevronDown className="text-slate-400 shrink-0 group-hover:text-indigo-600 transition-colors" />}
                      </button>
                      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${openFaq === idx ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
-                        <div className="p-6 pt-0 text-slate-600 leading-relaxed bg-white text-base">
+                        <div className="p-6 pt-0 text-slate-600 leading-relaxed bg-white text-base border-t border-slate-50">
                            {item.a}
                         </div>
                      </div>

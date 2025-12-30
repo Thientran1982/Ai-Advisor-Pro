@@ -1,6 +1,5 @@
-
-import React, { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Clock, MapPin, User, Plus, ArrowRight, X, Search, Check, Trash2, Ban, CheckCircle2, Pencil, CalendarDays, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Calendar as CalendarIcon, Clock, MapPin, User, Plus, X, Search, Check, Trash2, Ban, CheckCircle2, Pencil, CalendarDays, AlertCircle, Navigation, Map } from 'lucide-react';
 import { Appointment, Lead } from '../../types';
 import { dataService } from '../../services/dataService';
 
@@ -10,7 +9,7 @@ const SchedulePage = () => {
     const [leads, setLeads] = useState<Lead[]>([]); // For Autocomplete
     const [filter, setFilter] = useState<'all' | 'upcoming' | 'completed'>('upcoming');
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingId, setEditingId] = useState<string | null>(null); // Track editing state
+    const [editingId, setEditingId] = useState<string | null>(null); 
     
     // Toast Notification State
     const [toast, setToast] = useState<{ show: boolean, message: string, type: 'success' | 'error' | 'info' }>({ show: false, message: '', type: 'success' });
@@ -26,10 +25,12 @@ const SchedulePage = () => {
     });
     const [leadSearch, setLeadSearch] = useState('');
     const [showLeadSuggestions, setShowLeadSuggestions] = useState(false);
+    const [timeConflict, setTimeConflict] = useState<boolean>(false);
 
     // 1. DATA SYNC (REAL-TIME)
     useEffect(() => {
         const sync = () => {
+            // Sort by date ascending
             setAppointments(dataService.getAppointments().sort((a,b) => a.date.getTime() - b.date.getTime()));
             setLeads(dataService.getAllLeadsRaw());
         };
@@ -38,25 +39,57 @@ const SchedulePage = () => {
         return () => window.removeEventListener('storage', sync);
     }, []);
 
+    // 2. SMART GROUPING LOGIC (Group by Date)
+    const groupedAppointments = useMemo(() => {
+        const filtered = appointments.filter(a => filter === 'all' || a.status === filter);
+        const groups: Record<string, Appointment[]> = {};
+        
+        filtered.forEach(apt => {
+            const dateKey = apt.date.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+            if (!groups[dateKey]) groups[dateKey] = [];
+            groups[dateKey].push(apt);
+        });
+
+        return groups;
+    }, [appointments, filter]);
+
+    // 3. CONFLICT DETECTION LOGIC
+    useEffect(() => {
+        if (!formData.date || !isModalOpen) return;
+        const selectedTime = new Date(formData.date).getTime();
+        
+        // Check conflict within 1 hour window, excluding current editing item
+        const hasConflict = appointments.some(a => {
+            if (editingId && a.id === editingId) return false;
+            if (a.status === 'cancelled') return false;
+            const existingTime = a.date.getTime();
+            return Math.abs(existingTime - selectedTime) < 60 * 60 * 1000; // 1 Hour Buffer
+        });
+
+        setTimeConflict(hasConflict);
+    }, [formData.date, appointments, editingId, isModalOpen]);
+
     // UTILS
     const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
         setToast({ show: true, message, type });
         setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
     };
 
-    // 2. HANDLERS
     const handleOpenModal = (apt?: Appointment) => {
         if (apt) {
-            // Edit Mode
             setEditingId(apt.id);
             setFormData({ ...apt });
             setLeadSearch(apt.leadName);
         } else {
-            // Create Mode
             setEditingId(null);
-            setFormData({ title: '', date: new Date(), location: '', note: '', leadId: '', leadName: '' });
+            // Default to next hour rounded
+            const nextHour = new Date();
+            nextHour.setMinutes(0, 0, 0);
+            nextHour.setHours(nextHour.getHours() + 1);
+            setFormData({ title: '', date: nextHour, location: '', note: '', leadId: '', leadName: '' });
             setLeadSearch('');
         }
+        setTimeConflict(false);
         setIsModalOpen(true);
     };
 
@@ -67,16 +100,14 @@ const SchedulePage = () => {
         }
         
         if (editingId) {
-            // UPDATE EXISTING
             const updatedApt: Appointment = {
                 ...formData as Appointment,
-                id: editingId, // Keep ID
-                date: new Date(formData.date!) // Ensure Date object
+                id: editingId,
+                date: new Date(formData.date!) 
             };
             dataService.updateAppointment(updatedApt);
             showToast("Đã cập nhật lịch hẹn thành công");
         } else {
-            // CREATE NEW
             const newApt: Appointment = {
                 id: `apt_${Date.now()}`,
                 leadId: formData.leadId || 'guest',
@@ -89,7 +120,6 @@ const SchedulePage = () => {
             };
             dataService.addAppointment(newApt);
             
-            // Trigger notification
             dataService.addNotification({
                 id: `notif_${Date.now()}`,
                 type: 'schedule',
@@ -100,23 +130,27 @@ const SchedulePage = () => {
             });
             showToast("Đã thêm lịch hẹn mới");
         }
-
         setIsModalOpen(false);
     };
 
-    const handleUpdateStatus = (id: string, status: 'completed' | 'cancelled') => {
+    const handleUpdateStatus = (e: React.MouseEvent, id: string, status: 'completed' | 'cancelled') => {
+        e.stopPropagation();
         dataService.updateAppointmentStatus(id, status);
         showToast(status === 'completed' ? "Đã hoàn thành lịch hẹn" : "Đã hủy lịch hẹn", "info");
     };
 
-    const handleDelete = (id: string) => {
-        if (confirm("Bạn có chắc chắn muốn xóa?")) { // Still keep confirm for delete as safety
+    const handleDelete = (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        if (confirm("Bạn có chắc chắn muốn xóa?")) {
             dataService.deleteAppointment(id);
             showToast("Đã xóa lịch hẹn", "error");
         }
     };
 
-    const filtered = appointments.filter(a => filter === 'all' || a.status === filter);
+    const openMap = (e: React.MouseEvent, location: string) => {
+        e.stopPropagation();
+        window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`, '_blank');
+    };
 
     const getStatusColor = (status: string) => {
         switch(status) {
@@ -130,10 +164,10 @@ const SchedulePage = () => {
     return (
         <div className="h-full bg-[#FAFAFA] flex flex-col font-sans relative">
             {/* Header */}
-            <div className="bg-white border-b border-slate-200 px-6 py-5 flex justify-between items-center shrink-0">
+            <div className="bg-white border-b border-slate-200 px-6 py-5 flex justify-between items-center shrink-0 z-10">
                 <div>
                     <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-                        Lịch Trình <span className="text-sm font-bold bg-slate-100 text-slate-500 px-3 py-1 rounded-full">{filtered.length}</span>
+                        Lịch Trình <span className="text-sm font-bold bg-slate-100 text-slate-500 px-3 py-1 rounded-full">{appointments.filter(a => a.status === 'upcoming').length} sắp tới</span>
                     </h2>
                     <p className="text-sm text-slate-500 font-medium mt-1">Quản lý cuộc hẹn và dẫn khách.</p>
                 </div>
@@ -141,7 +175,7 @@ const SchedulePage = () => {
                     onClick={() => handleOpenModal()}
                     className="px-5 py-3 bg-slate-900 text-white rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-600 transition-all shadow-lg active:scale-95 text-xs md:text-sm"
                 >
-                    <Plus size={18}/> Thêm Lịch Hẹn
+                    <Plus size={18}/> Thêm Lịch
                 </button>
             </div>
 
@@ -160,110 +194,92 @@ const SchedulePage = () => {
                 </div>
             </div>
 
-            {/* Timeline List */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6 relative">
-                {/* Timeline Line */}
-                {filtered.length > 0 && (
-                    <div className="absolute left-[38px] top-6 bottom-6 w-0.5 bg-slate-200 z-0 hidden md:block"></div>
-                )}
-
-                {filtered.length > 0 ? filtered.map((apt, index) => (
-                    <div key={apt.id} className="relative z-10 flex gap-6 group animate-in slide-in-from-bottom-2 duration-300" style={{animationDelay: `${index * 50}ms`}}>
-                        {/* Time Column (Desktop) */}
-                        <div className="hidden md:flex flex-col items-center w-16 pt-2 shrink-0">
-                            <div className={`w-3 h-3 rounded-full ring-4 ring-[#FAFAFA] transition-all mb-2 ${apt.status === 'upcoming' ? 'bg-indigo-500 group-hover:bg-indigo-600' : apt.status === 'completed' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                            <span className="text-xs font-bold text-slate-500">{new Date(apt.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}</span>
+            {/* List Content */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8 pb-32">
+                {Object.keys(groupedAppointments).length > 0 ? Object.entries(groupedAppointments).map(([dateKey, groupApts]) => (
+                    <div key={dateKey} className="animate-in slide-in-from-bottom-2 duration-500">
+                        {/* Date Header */}
+                        <div className="flex items-center gap-3 mb-4 sticky top-0 bg-[#FAFAFA]/95 backdrop-blur py-2 z-10">
+                            <div className="w-2 h-2 rounded-full bg-indigo-500 ring-4 ring-indigo-100"></div>
+                            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">{dateKey}</h3>
+                            <div className="h-px bg-slate-200 flex-1"></div>
                         </div>
 
-                        {/* Card */}
-                        <div className="flex-1 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all hover:border-indigo-200 group-hover:-translate-y-0.5 relative overflow-hidden">
-                            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 relative z-10">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${getStatusColor(apt.status)}`}>
-                                            {apt.status === 'upcoming' ? 'Sắp diễn ra' : apt.status === 'completed' ? 'Đã xong' : 'Đã hủy'}
-                                        </span>
-                                        <span className="text-xs font-bold text-slate-400 flex items-center gap-1 md:hidden">
-                                            <Clock size={12}/> {new Date(apt.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
-                                        </span>
-                                    </div>
-                                    
-                                    <h3 className="text-lg font-black text-slate-900 mb-1 leading-tight group-hover:text-indigo-700 transition-colors cursor-pointer" onClick={() => handleOpenModal(apt)}>
-                                        {apt.title}
-                                    </h3>
-                                    
-                                    <div className="flex flex-col gap-1.5 mt-3">
-                                        <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                                            <MapPin size={16} className="text-indigo-500"/> {apt.location}
-                                        </div>
-                                        <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                                            <User size={16} className="text-indigo-500"/> {apt.leadName}
-                                        </div>
-                                    </div>
-
-                                    {apt.note && (
-                                        <div className="mt-4 p-3 bg-slate-50 rounded-xl text-xs text-slate-500 italic border border-slate-100">
-                                            "{apt.note}"
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Date Box (Mobile/Desktop) */}
-                                <div className="flex flex-row md:flex-col items-center md:justify-center justify-between gap-4 pt-4 md:pt-0 md:pl-6 md:border-l border-slate-100 shrink-0">
-                                    <div className="text-center">
-                                        <span className="block text-xs font-bold text-slate-400 uppercase">{new Date(apt.date).toLocaleDateString('vi-VN', {weekday: 'short'})}</span>
-                                        <span className="block text-3xl font-black text-slate-900">{new Date(apt.date).getDate()}</span>
-                                        <span className="block text-xs font-bold text-slate-400 uppercase">Tháng {new Date(apt.date).getMonth() + 1}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* HOVER ACTIONS */}
-                            <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 backdrop-blur rounded-xl p-1 shadow-sm border border-slate-100 z-20">
-                                <button 
+                        {/* Appointments Grid */}
+                        <div className="grid grid-cols-1 gap-4">
+                            {(groupApts as Appointment[]).map((apt, index) => (
+                                <div 
+                                    key={apt.id} 
                                     onClick={() => handleOpenModal(apt)}
-                                    className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                    title="Chỉnh sửa"
+                                    className="group bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all cursor-pointer relative overflow-hidden"
                                 >
-                                    <Pencil size={18}/>
-                                </button>
-                                {apt.status === 'upcoming' && (
-                                    <>
-                                        <button 
-                                            onClick={() => handleUpdateStatus(apt.id, 'completed')}
-                                            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" 
-                                            title="Hoàn thành"
-                                        >
-                                            <CheckCircle2 size={18}/>
-                                        </button>
-                                        <button 
-                                            onClick={() => handleUpdateStatus(apt.id, 'cancelled')}
-                                            className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors" 
-                                            title="Hủy lịch"
-                                        >
-                                            <Ban size={18}/>
-                                        </button>
-                                    </>
-                                )}
-                                <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                                <button 
-                                    onClick={() => handleDelete(apt.id)}
-                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" 
-                                    title="Xóa"
-                                >
-                                    <Trash2 size={18}/>
-                                </button>
-                            </div>
+                                    {/* Left Border Status Indicator */}
+                                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${apt.status === 'upcoming' ? 'bg-indigo-500' : apt.status === 'completed' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pl-3">
+                                        
+                                        {/* Time & Title */}
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-3 mb-1">
+                                                <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                                                    <Clock size={14} className={apt.status === 'upcoming' ? "text-indigo-600" : "text-slate-400"}/>
+                                                    <span className={`text-xs font-black ${apt.status === 'upcoming' ? 'text-indigo-700' : 'text-slate-500'}`}>
+                                                        {new Date(apt.date).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}
+                                                    </span>
+                                                </div>
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getStatusColor(apt.status)}`}>
+                                                    {apt.status === 'upcoming' ? 'Sắp tới' : apt.status === 'completed' ? 'Xong' : 'Hủy'}
+                                                </span>
+                                            </div>
+                                            <h4 className="text-base font-bold text-slate-900 truncate">{apt.title}</h4>
+                                            
+                                            <div className="flex flex-wrap gap-4 mt-2">
+                                                <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                                                    <User size={14} className="text-slate-400"/> {apt.leadName}
+                                                </div>
+                                                <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 group/loc" onClick={(e) => openMap(e, apt.location)}>
+                                                    <MapPin size={14} className="text-slate-400 group-hover/loc:text-red-500 transition-colors"/> 
+                                                    <span className="group-hover/loc:text-indigo-600 group-hover/loc:underline decoration-indigo-300 underline-offset-2 transition-all">{apt.location}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Actions (Desktop: Hover, Mobile: Always visible but smaller) */}
+                                        <div className="flex items-center gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                            {apt.status === 'upcoming' && (
+                                                <button 
+                                                    onClick={(e) => handleUpdateStatus(e, apt.id, 'completed')}
+                                                    className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-100" title="Hoàn thành"
+                                                >
+                                                    <CheckCircle2 size={18}/>
+                                                </button>
+                                            )}
+                                            <button 
+                                                onClick={(e) => openMap(e, apt.location)}
+                                                className="p-2 bg-slate-50 text-slate-500 hover:bg-white hover:text-red-500 hover:shadow-sm rounded-xl transition-all border border-slate-100" title="Mở bản đồ"
+                                            >
+                                                <Map size={18}/>
+                                            </button>
+                                            <div className="w-px h-6 bg-slate-100 mx-1"></div>
+                                            <button 
+                                                onClick={(e) => handleDelete(e, apt.id)}
+                                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="Xóa"
+                                            >
+                                                <Trash2 size={18}/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )) : (
-                    <div className="flex flex-col items-center justify-center h-96 text-center">
+                    <div className="flex flex-col items-center justify-center py-20 text-center opacity-70">
                         <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-6">
                             <CalendarDays size={40} className="text-slate-300"/>
                         </div>
-                        <h3 className="text-lg font-bold text-slate-700">Không có lịch hẹn</h3>
-                        <p className="text-slate-500 text-sm">Bạn chưa có lịch hẹn nào trong danh sách này.</p>
-                        <button onClick={() => handleOpenModal()} className="mt-4 text-indigo-600 font-bold text-sm hover:underline">Tạo lịch hẹn ngay</button>
+                        <h3 className="text-lg font-bold text-slate-700">Chưa có lịch hẹn nào</h3>
+                        <p className="text-slate-500 text-sm max-w-xs mx-auto">Danh sách trống. Hãy lên lịch hẹn với khách hàng ngay.</p>
                     </div>
                 )}
             </div>
@@ -343,20 +359,27 @@ const SchedulePage = () => {
                                     <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block">Thời gian</label>
                                     <input 
                                         type="datetime-local"
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:bg-white focus:border-indigo-500 transition-colors"
-                                        // Handle safe date parsing
+                                        className={`w-full p-3 bg-slate-50 border rounded-2xl font-bold text-sm outline-none focus:bg-white transition-colors ${timeConflict ? 'border-red-300 bg-red-50 text-red-900' : 'border-slate-200 focus:border-indigo-500'}`}
                                         value={formData.date ? new Date(formData.date.getTime() - (formData.date.getTimezoneOffset() * 60000)).toISOString().slice(0, 16) : ''}
                                         onChange={e => setFormData({...formData, date: new Date(e.target.value)})}
                                     />
+                                    {timeConflict && (
+                                        <p className="text-[10px] font-bold text-red-500 mt-1 flex items-center gap-1">
+                                            <AlertCircle size={10}/> Cảnh báo: Trùng lịch hẹn khác!
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block">Địa điểm</label>
-                                    <input 
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:bg-white focus:border-indigo-500 transition-colors" 
-                                        placeholder="VD: Sales Gallery"
-                                        value={formData.location}
-                                        onChange={e => setFormData({...formData, location: e.target.value})}
-                                    />
+                                    <div className="relative">
+                                        <input 
+                                            className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:bg-white focus:border-indigo-500 transition-colors" 
+                                            placeholder="VD: Sales Gallery"
+                                            value={formData.location}
+                                            onChange={e => setFormData({...formData, location: e.target.value})}
+                                        />
+                                        <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                                    </div>
                                 </div>
                             </div>
 

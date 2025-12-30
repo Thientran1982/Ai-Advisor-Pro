@@ -9,7 +9,7 @@ import { useAIAdvisor } from './hooks/useAIAdvisor';
 import { 
     LayoutDashboard, LogOut, Megaphone, 
     Settings as SettingsIcon, ChevronLeft, ChevronRight, Menu, Database,
-    Calendar, Bell
+    Calendar, Bell, BookOpen 
 } from 'lucide-react';
 
 // COMPONENTS
@@ -21,7 +21,8 @@ import CampaignDashboard from './components/agent/CampaignDashboard';
 import KnowledgeBase from './components/agent/KnowledgeBase';
 import SchedulePage from './components/agent/SchedulePage'; 
 import NotificationCenter from './components/agent/NotificationCenter'; 
-import AgentConfigPanel from './components/agent/AgentSettings'; 
+import AgentConfigPanel from './components/agent/AgentSettings';
+import GuidePage from './components/agent/GuidePage'; 
 import OnboardingModal from './components/core/OnboardingModal';
 import AuthModal from './components/auth/AuthModal';
 import LegalModals from './components/core/LegalModals';
@@ -36,18 +37,22 @@ const App: React.FC = () => {
   const [trafficSource, setTrafficSource] = useState<string>('direct');
   
   // --- AGENT STATE ---
-  const [agentView, setAgentView] = useState<'dashboard' | 'schedule' | 'campaigns' | 'knowledge' | 'notifications' | 'settings'>('dashboard');
+  const [agentView, setAgentView] = useState<'dashboard' | 'schedule' | 'campaigns' | 'knowledge' | 'notifications' | 'settings' | 'guide'>('dashboard');
   const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'projects' | 'billing'>('profile'); 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [newLeadAlert, setNewLeadAlert] = useState<string | null>(null);
 
   // --- UI STATE ---
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-      if (typeof window === 'undefined') return true;
-      if (window.innerWidth < 1024) return false; 
-      return localStorage.getItem('advisor_sidebar_state') !== 'closed';
-  });
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default true for server/hydration match
+  
+  // Lazy init side effect to prevent hydration mismatch or blocking
+  useEffect(() => {
+      const saved = localStorage.getItem('advisor_sidebar_state');
+      const isSmallScreen = window.innerWidth < 1024;
+      setIsSidebarOpen(saved === 'closed' ? false : !isSmallScreen);
+  }, []);
+
   const [proModalOpen, setProModalOpen] = useState(false);
   const [legalType, setLegalType] = useState<'privacy' | 'terms' | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -97,8 +102,9 @@ const App: React.FC = () => {
   // --- HANDLERS ---
   const handleExplicitLeadCapture = useCallback((data: { phone?: string, email?: string, name?: string, note?: string }) => {
       if (!session) return;
+      // 🔥 FIX: Use crypto.randomUUID for safer IDs instead of Date.now()
       const newLead: Lead = {
-          id: `L-EXP-${Date.now()}`,
+          id: `L-EXP-${crypto.randomUUID().slice(0,8)}`,
           tenantId: session.id,
           name: data.name || "Khách để lại thông tin",
           phone: data.phone || "Chưa cung cấp",
@@ -109,7 +115,7 @@ const App: React.FC = () => {
       };
       dataService.addLead(newLead);
       dataService.addNotification({
-          id: `notif_exp_${Date.now()}`, type: 'lead', title: '🔥 KHÁCH MỚI', message: `Thông tin: ${data.phone || data.email}`, time: new Date(), read: false
+          id: `notif_${crypto.randomUUID()}`, type: 'lead', title: '🔥 KHÁCH MỚI', message: `Thông tin: ${data.phone || data.email}`, time: new Date(), read: false
       });
       setNewLeadAlert(`ĐÃ LƯU: ${data.phone || data.email}`);
       setTimeout(() => setNewLeadAlert(null), 6000);
@@ -145,7 +151,20 @@ const App: React.FC = () => {
       if (view === 'client') return (
         <div className="h-full flex flex-col bg-white relative animate-in fade-in duration-500">
           <div className="flex-1 flex flex-col relative z-10 h-full bg-white">
-            <ChatWindow messages={messages} onSendMessage={handleSendMessage} isLoading={isLoading} tenant={session} initialProject={targetProject} onLeadCapture={handleExplicitLeadCapture} onClearChat={() => {setMessages([]); setLiveReasoning([]); }} onSwitchToAgent={() => setView('agent')} isThinkingMode={isDeepReasoning} showMemoryToast={showMemoryToast} />
+            <ChatWindow 
+              messages={messages} 
+              onSendMessage={handleSendMessage} 
+              isLoading={isLoading} 
+              tenant={session} 
+              initialProject={targetProject} 
+              onLeadCapture={handleExplicitLeadCapture} 
+              onClearChat={() => {setMessages([]); setLiveReasoning([]); }} 
+              onSwitchToAgent={() => setView('agent')} 
+              isThinkingMode={isDeepReasoning} 
+              showMemoryToast={showMemoryToast}
+              onUpgradeRequest={() => setProModalOpen(true)} 
+              liveReasoning={liveReasoning}
+            />
           </div>
           <ProFeatureGateway isOpen={proModalOpen} onClose={() => setProModalOpen(false)} userSubscription={session?.subscription || 'free'} onUpgrade={() => { setProModalOpen(false); if (!session || session.id === 'demo_agent') setAuthModal({ isOpen: true, mode: 'register', plan: 'pro' }); else { setView('agent'); setAgentView('settings'); setSettingsInitialTab('billing'); } }} onExecute={(tool, prompt) => handleSendMessage(prompt)} />
         </div>
@@ -164,6 +183,7 @@ const App: React.FC = () => {
                     <NavItem id="campaigns" icon={Megaphone} label="Chiến dịch" active={agentView === 'campaigns'} />
                     <NavItem id="knowledge" icon={Database} label="Kho dữ liệu" active={agentView === 'knowledge'} />
                     <NavItem id="notifications" icon={Bell} label="Thông báo" active={agentView === 'notifications'} badge={unreadCount} />
+                    <NavItem id="guide" icon={BookOpen} label="Hướng dẫn" active={agentView === 'guide'} /> 
                     <NavItem id="settings" icon={SettingsIcon} label="Cài đặt" active={agentView === 'settings'} />
                 </div>
                 <div className="mt-auto flex flex-col gap-4 w-full px-4">
@@ -182,7 +202,8 @@ const App: React.FC = () => {
                     {agentView === 'schedule' && <SchedulePage />}
                     {agentView === 'campaigns' && <CampaignDashboard />}
                     {agentView === 'knowledge' && <KnowledgeBase />}
-                    {agentView === 'notifications' && <NotificationCenter />}
+                    {agentView === 'notifications' && <NotificationCenter onNavigate={(view) => setAgentView(view)} />}
+                    {agentView === 'guide' && <GuidePage agent={session} />}
                     {agentView === 'settings' && session && <AgentConfigPanel tenant={session} initialTab={settingsInitialTab} onUpdate={(updated) => { setSession(updated); authService.updateProfile(updated); }} onNavigateToProfile={() => setView('profile')} />}
                 </div>
             </main>
@@ -190,8 +211,10 @@ const App: React.FC = () => {
       );
   };
 
+  const isAppMode = view === 'client' || view === 'agent';
+
   return (
-    <div className={`font-sans antialiased text-slate-900 bg-[#F8FAFC] selection:bg-indigo-500/30 selection:text-indigo-900 relative ${view === 'landing' ? 'min-h-screen' : 'h-[100dvh] overflow-hidden'}`}>
+    <div className={`font-sans antialiased text-slate-900 bg-[#F8FAFC] selection:bg-indigo-500/30 selection:text-indigo-900 relative ${!isAppMode ? 'min-h-screen overflow-x-hidden' : 'h-[100dvh] overflow-hidden'}`}>
       {newLeadAlert && (<div onClick={() => { setView('agent'); setAgentView('dashboard'); }} className="fixed top-6 right-6 z-[100] bg-slate-900 text-white pl-4 pr-6 py-3.5 rounded-xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-top duration-500 cursor-pointer hover:scale-105 transition-transform border border-slate-800"><span className="relative flex h-2.5 w-2.5 shrink-0"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span></span><div><h4 className="font-bold text-xs tracking-wide text-slate-200">AI DETECTED</h4><p className="text-sm font-semibold">{newLeadAlert}</p></div></div>)}
       {showOnboarding && session && <OnboardingModal user={session} onComplete={(data) => { authService.updateProfile(data); setSession({...session, ...data}); setShowOnboarding(false); }} />}
       {renderContent()}

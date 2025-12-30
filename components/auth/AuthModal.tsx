@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Mail, Lock, User, ArrowRight, Loader2, CheckCircle2, ChevronLeft, KeyRound, Eye, EyeOff, AlertCircle, Crown, Zap, CreditCard, ShieldCheck, Calendar, Server, QrCode, Smartphone, Copy, Check } from 'lucide-react';
+import { X, Mail, Lock, User, ArrowRight, Loader2, CheckCircle2, ChevronLeft, KeyRound, Eye, EyeOff, AlertCircle, Crown, Zap, CreditCard, ShieldCheck, Calendar, Server, QrCode, Smartphone, Copy, Check, FileText } from 'lucide-react';
 import { authService } from '../../services/authService';
 import BrandLogo from '../common/BrandLogo';
 
@@ -22,7 +22,8 @@ const PLATFORM_BANK = {
 };
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, initialMode = 'login', initialPlan = 'free' }) => {
-    const [view, setView] = useState<'login' | 'register' | 'forgot' | 'payment'>(initialMode);
+    // VIEWS: 'forgot_email' -> 'forgot_otp' -> 'login'
+    const [view, setView] = useState<'login' | 'register' | 'forgot_email' | 'forgot_otp' | 'payment'>(initialMode);
     const [isLoading, setIsLoading] = useState(false);
     
     const [paymentMethod, setPaymentMethod] = useState<'card' | 'qr'>('qr'); 
@@ -37,7 +38,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
         password: '',
         confirmPassword: '',
         fullName: '',
-        phone: ''
+        phone: '',
+        otp: '', // NEW: OTP Field
+        newPassword: '', // NEW: New Pass Field
+        termsAgreed: false // NEW: Terms Checkbox
     });
 
     const [cardData, setCardData] = useState({
@@ -57,7 +61,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
             setSuccessMsg('');
             setProcessingStage('');
             setPaymentMethod('qr'); 
-            setFormData({ email: '', password: '', confirmPassword: '', fullName: '', phone: '' });
+            setFormData({ email: '', password: '', confirmPassword: '', fullName: '', phone: '', otp: '', newPassword: '', termsAgreed: false });
             setCardData({ number: '', expiry: '', cvc: '', holder: '' });
             setFieldErrors({});
         }
@@ -66,19 +70,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
     if (!isOpen) return null;
 
     // --- VIETQR GENERATOR LOGIC ---
-    // Syntax: PRO + Phone Number (Unique Identifier for Webhook)
     const transferContent = `PRO ${formData.phone.replace(/\D/g, '').slice(-9)}`; 
     const qrUrl = `https://img.vietqr.io/image/${PLATFORM_BANK.bankId}-${PLATFORM_BANK.accountNo}-${PLATFORM_BANK.template}.png?amount=499000&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(PLATFORM_BANK.accountName)}`;
 
     // --- VALIDATION ENGINE ---
-    const validateField = (name: string, value: string) => {
+    const validateField = (name: string, value: any) => {
         let error = '';
-        const trimmed = value.trim();
+        const strVal = String(value).trim();
 
         switch (name) {
             case 'email':
-                if (!trimmed) error = 'Vui lòng nhập Email.';
-                else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) error = 'Email không đúng định dạng.';
+                if (!strVal) error = 'Vui lòng nhập Email.';
+                else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal)) error = 'Email không đúng định dạng.';
                 break;
             case 'password':
                 if (!value) error = 'Vui lòng nhập mật khẩu.';
@@ -91,13 +94,22 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                 }
                 break;
             case 'fullName':
-                if (view === 'register' && !trimmed) error = 'Vui lòng nhập họ tên.';
+                if (view === 'register' && !strVal) error = 'Vui lòng nhập họ tên.';
                 break;
             case 'phone':
                 if (view === 'register') {
-                    if (!trimmed) error = 'Vui lòng nhập SĐT.';
-                    else if (!/(84|0[3|5|7|8|9])+([0-9]{8})\b/g.test(trimmed)) error = 'Số điện thoại không hợp lệ.';
+                    if (!strVal) error = 'Vui lòng nhập SĐT.';
+                    else if (!/(84|0[3|5|7|8|9])+([0-9]{8})\b/g.test(strVal)) error = 'Số điện thoại không hợp lệ.';
                 }
+                break;
+            case 'termsAgreed':
+                if (view === 'register' && !value) error = 'Bạn cần đồng ý điều khoản.';
+                break;
+            case 'otp':
+                if (view === 'forgot_otp' && (!strVal || strVal.length !== 6)) error = 'Mã OTP gồm 6 chữ số.';
+                break;
+            case 'newPassword':
+                if (view === 'forgot_otp' && strVal.length < 6) error = 'Mật khẩu mới quá ngắn.';
                 break;
         }
 
@@ -110,8 +122,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        const { name, value, type, checked } = e.target;
+        const val = type === 'checkbox' ? checked : value;
+        setFormData(prev => ({ ...prev, [name]: val }));
         if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' }));
     };
 
@@ -168,6 +181,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
             if (validateField('email', formData.email)) errors.email = 'Error';
             if (validateField('password', formData.password)) errors.password = 'Error';
             if (validateField('confirmPassword', formData.confirmPassword)) errors.confirmPassword = 'Error';
+            if (validateField('termsAgreed', formData.termsAgreed)) errors.termsAgreed = 'Error';
 
             if (Object.keys(errors).length > 0) return;
 
@@ -206,13 +220,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                     setIsLoading(false);
                     return;
                 }
-                
                 setProcessingStage('Đang xác thực thẻ...');
                 await new Promise(r => setTimeout(r, 1500));
                 setProcessingStage('Kết nối Gateway...');
                 await new Promise(r => setTimeout(r, 1500));
             } else {
-                // QR Logic: Simulate listening to Webhook/IPN
                 setProcessingStage('Đang tìm kiếm giao dịch...');
                 await new Promise(r => setTimeout(r, 2000));
                 setProcessingStage(`Đã nhận ${transferContent}...`);
@@ -245,15 +257,45 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
             return;
         }
 
-        // 4. FORGOT PASSWORD
-        if (view === 'forgot') {
+        // 4. FORGOT PASSWORD FLOW
+        if (view === 'forgot_email') {
             if (validateField('email', formData.email)) return;
             setIsLoading(true);
             await new Promise(r => setTimeout(r, 800));
-            const res = authService.resetPassword(formData.email);
+            const res = authService.requestPasswordReset(formData.email);
             setIsLoading(false);
-            if (res.success) setSuccessMsg(res.message);
-            else setGlobalError(res.message);
+            
+            if (res.success) {
+                setSuccessMsg(res.message);
+                setTimeout(() => {
+                    setSuccessMsg(''); // Clear success msg to not confuse user in next step
+                    setView('forgot_otp');
+                }, 2000);
+            } else {
+                setGlobalError(res.message);
+            }
+            return;
+        }
+
+        if (view === 'forgot_otp') {
+            if (validateField('otp', formData.otp)) return;
+            if (validateField('newPassword', formData.newPassword)) return;
+            
+            setIsLoading(true);
+            await new Promise(r => setTimeout(r, 800));
+            const res = authService.confirmPasswordReset(formData.email, formData.otp, formData.newPassword);
+            setIsLoading(false);
+
+            if (res.success) {
+                setSuccessMsg(res.message);
+                setTimeout(() => {
+                    setView('login');
+                    setSuccessMsg('Mật khẩu đã được đổi. Vui lòng đăng nhập.');
+                }, 1500);
+            } else {
+                setGlobalError(res.message);
+            }
+            return;
         }
     };
 
@@ -268,7 +310,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
 
     return (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-            <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden relative flex flex-col transition-all duration-300 max-h-[95vh]">
+            <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden relative flex flex-col transition-all duration-300 max-h-[90dvh]">
                 
                 {/* HEADER */}
                 <div className="shrink-0 p-8 pb-2 text-center bg-white relative z-20">
@@ -276,9 +318,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                         <X size={20} />
                     </button>
 
-                    {(view === 'forgot' || view === 'payment') && !isLoading && (
+                    {(view === 'forgot_email' || view === 'forgot_otp' || view === 'payment') && !isLoading && (
                         <button onClick={() => { 
                             if (view === 'payment') setView('register');
+                            else if (view === 'forgot_otp') setView('forgot_email');
                             else { setView('login'); setGlobalError(''); setSuccessMsg(''); setFieldErrors({}); }
                         }} className="absolute top-4 left-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors z-10 flex items-center gap-1 text-xs font-bold">
                             <ChevronLeft size={16} /> Quay lại
@@ -298,16 +341,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                     <h2 className="text-2xl font-black text-slate-900 mb-2 animate-in slide-in-from-bottom-2">
                         {view === 'login' ? 'Chào mừng trở lại' : 
                          view === 'register' ? (initialPlan === 'pro' ? 'Đăng ký Gói Pro' : 'Tạo tài khoản Agent') :
-                         view === 'payment' ? 'Thanh toán an toàn' : 'Khôi phục mật khẩu'}
+                         view === 'payment' ? 'Thanh toán an toàn' : 
+                         view === 'forgot_email' ? 'Khôi phục mật khẩu' : 'Đặt mật khẩu mới'}
                     </h2>
                     <p className="text-sm text-slate-500 font-medium animate-in slide-in-from-bottom-2 delay-100 px-4 leading-relaxed">
                         {view === 'login' ? 'Đăng nhập để truy cập Dashboard quản lý.' : 
                          view === 'register' ? (initialPlan === 'pro' ? 'Bước 1/2: Thông tin tài khoản' : 'Bắt đầu hành trình miễn phí.') :
-                         view === 'payment' ? 'Bước 2/2: Kích hoạt tài khoản Pro Agent.' : 'Nhập email để nhận hướng dẫn đặt lại mật khẩu.'}
+                         view === 'payment' ? 'Bước 2/2: Kích hoạt tài khoản Pro Agent.' : 
+                         view === 'forgot_email' ? 'Nhập email để nhận mã xác thực.' : 'Nhập mã OTP và mật khẩu mới.'}
                     </p>
                 </div>
 
-                {/* FORM BODY */}
+                {/* FORM BODY - SCROLLABLE FOR KEYBOARD */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar px-8 pb-4">
                     <form onSubmit={handleSubmit} className="space-y-4 py-4">
                         
@@ -499,8 +544,41 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                             </div>
                         )}
 
-                        {/* COMMON FIELDS */}
-                        {view !== 'payment' && (
+                        {/* FORGOT PASS - OTP VIEW */}
+                        {view === 'forgot_otp' && (
+                            <div className="space-y-4 animate-in slide-in-from-right fade-in">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Mã xác nhận (OTP)</label>
+                                    <div className="relative">
+                                        <input 
+                                            type="text" name="otp"
+                                            value={formData.otp} onChange={handleChange} onBlur={handleBlur}
+                                            className={getInputClass('otp')} placeholder="123456" maxLength={6}
+                                        />
+                                        <ShieldCheck size={16} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.otp ? 'text-red-400' : 'text-slate-400'}`} />
+                                    </div>
+                                    {fieldErrors.otp && <p className="text-[10px] font-bold text-red-500 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {fieldErrors.otp}</p>}
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Mật khẩu mới</label>
+                                    <div className="relative">
+                                        <input 
+                                            type={showPass ? "text" : "password"} name="newPassword"
+                                            value={formData.newPassword} onChange={handleChange} onBlur={handleBlur}
+                                            className={getInputClass('newPassword')} placeholder="Mật khẩu mới..."
+                                        />
+                                        <Lock size={16} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.newPassword ? 'text-red-400' : 'text-slate-400'}`} />
+                                        <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                            {showPass ? <EyeOff size={16}/> : <Eye size={16}/>}
+                                        </button>
+                                    </div>
+                                    {fieldErrors.newPassword && <p className="text-[10px] font-bold text-red-500 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {fieldErrors.newPassword}</p>}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* COMMON FIELDS (Login / Register / Forgot Email) */}
+                        {view !== 'payment' && view !== 'forgot_otp' && (
                             <>
                                 <div className="space-y-1 animate-in fade-in">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Email</label>
@@ -521,7 +599,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                                             <div className="flex justify-between items-center ml-1">
                                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Mật khẩu</label>
                                                 {view === 'login' && (
-                                                    <button type="button" onClick={() => { setView('forgot'); setGlobalError(''); setSuccessMsg(''); }} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline">
+                                                    <button type="button" onClick={() => { setView('forgot_email'); setGlobalError(''); setSuccessMsg(''); }} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline">
                                                         Quên mật khẩu?
                                                     </button>
                                                 )}
@@ -542,19 +620,37 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                                         </div>
 
                                         {view === 'register' && (
-                                            <div className="space-y-1 animate-in slide-in-from-top-2">
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Xác nhận mật khẩu</label>
-                                                <div className="relative">
-                                                    <input 
-                                                        type="password" name="confirmPassword"
-                                                        value={formData.confirmPassword} onChange={handleChange} onBlur={handleBlur}
-                                                        className={getInputClass('confirmPassword')}
-                                                        placeholder="Nhập lại mật khẩu" 
-                                                    />
-                                                    <Lock size={16} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.confirmPassword ? 'text-red-400' : 'text-slate-400'}`} />
+                                            <>
+                                                <div className="space-y-1 animate-in slide-in-from-top-2">
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Xác nhận mật khẩu</label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type="password" name="confirmPassword"
+                                                            value={formData.confirmPassword} onChange={handleChange} onBlur={handleBlur}
+                                                            className={getInputClass('confirmPassword')}
+                                                            placeholder="Nhập lại mật khẩu" 
+                                                        />
+                                                        <Lock size={16} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.confirmPassword ? 'text-red-400' : 'text-slate-400'}`} />
+                                                    </div>
+                                                    {fieldErrors.confirmPassword && <p className="text-[10px] font-bold text-red-500 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {fieldErrors.confirmPassword}</p>}
                                                 </div>
-                                                {fieldErrors.confirmPassword && <p className="text-[10px] font-bold text-red-500 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {fieldErrors.confirmPassword}</p>}
-                                            </div>
+                                                
+                                                {/* TERMS CHECKBOX */}
+                                                <div className="flex items-start gap-2 pt-2 animate-in slide-in-from-top-2">
+                                                    <div className="relative flex items-center">
+                                                        <input 
+                                                            type="checkbox" name="termsAgreed"
+                                                            checked={formData.termsAgreed} onChange={handleChange}
+                                                            className="peer h-4 w-4 cursor-pointer appearance-none rounded-md border border-slate-300 bg-white checked:border-indigo-600 checked:bg-indigo-600 transition-all"
+                                                        />
+                                                        <Check size={10} className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100" />
+                                                    </div>
+                                                    <p className="text-xs text-slate-500 leading-tight">
+                                                        Tôi đồng ý với <a href="#" className="text-indigo-600 font-bold hover:underline">Điều khoản sử dụng</a> và <a href="#" className="text-indigo-600 font-bold hover:underline">Chính sách bảo mật</a>.
+                                                    </p>
+                                                </div>
+                                                {fieldErrors.termsAgreed && <p className="text-[10px] font-bold text-red-500 ml-1 flex items-center gap-1"><AlertCircle size={10}/> {fieldErrors.termsAgreed}</p>}
+                                            </>
                                         )}
                                     </div>
                                 )}
@@ -580,18 +676,21 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess, 
                                 className={`w-full py-3.5 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg active:scale-95 mt-4 ${view !== 'login' && initialPlan === 'pro' ? 'bg-gradient-to-r from-indigo-600 to-purple-600 shadow-indigo-300' : 'bg-slate-900 shadow-slate-200'}`}
                             >
                                 {view === 'payment' ? (paymentMethod === 'qr' ? <Smartphone size={18}/> : <CreditCard size={18}/>) : 
-                                 view === 'forgot' ? <KeyRound size={18}/> : 
+                                 view === 'forgot_email' ? <Mail size={18}/> : 
+                                 view === 'forgot_otp' ? <KeyRound size={18}/> :
                                  (view === 'register' && initialPlan === 'pro' ? <ArrowRight size={18}/> : <ArrowRight size={18} />)}
+                                
                                 {view === 'login' ? 'Đăng Nhập' : 
                                  view === 'payment' ? (paymentMethod === 'qr' ? 'Đã Chuyển Khoản' : 'Thanh Toán Ngay') :
-                                 view === 'register' ? (initialPlan === 'pro' ? 'Tiếp tục & Thanh toán' : 'Tạo Tài Khoản') : 'Gửi Link Khôi Phục'}
+                                 view === 'register' ? (initialPlan === 'pro' ? 'Tiếp tục & Thanh toán' : 'Tạo Tài Khoản') : 
+                                 view === 'forgot_email' ? 'Gửi mã xác nhận' : 'Đặt lại mật khẩu'}
                             </button>
                         )}
                     </form>
                 </div>
 
                 {/* FOOTER */}
-                {view !== 'forgot' && view !== 'payment' && (
+                {(view === 'login' || view === 'register') && (
                     <div className="shrink-0 bg-slate-50 p-4 text-center border-t border-slate-100 z-20">
                         <p className="text-xs text-slate-500 font-medium">
                             {view === 'login' ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}

@@ -1,12 +1,13 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TenantProfile, Invoice, Project, UsageStats } from '../../types';
 import { dataService } from '../../services/dataService'; 
 import { 
     Save, User, CreditCard, Check, Camera, Building, 
     Info, Phone, MessageSquare, Briefcase, Crown, ExternalLink,
     Download, Clock, Zap, Shield, CheckCircle2, Plus, Trash2, MapPin, DollarSign,
-    BrainCircuit, Sliders, Volume2, Target, X, Loader2, Calendar, AlertCircle
+    BrainCircuit, Sliders, Volume2, Target, X, Loader2, Calendar, AlertCircle,
+    RefreshCcw, AlertTriangle, Sparkles, MessageCircle, Copy, LogOut
 } from 'lucide-react';
 
 interface AgentSettingsProps {
@@ -33,6 +34,12 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
     // 2. STATE MANAGEMENT
     const [activeTab, setActiveTab] = useState<'profile' | 'projects' | 'billing'>(initialTab);
     const [isSaving, setIsSaving] = useState(false);
+    
+    // RESET MODAL STATE
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
+    const [resetInput, setResetInput] = useState('');
+    const [isResetting, setIsResetting] = useState(false);
+
     const [toast, setToast] = useState<{ show: boolean, message: string, type: 'success' | 'error' | 'info' }>({ show: false, message: '', type: 'success' });
     
     // FETCH DATA
@@ -95,6 +102,33 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
         return () => window.removeEventListener('storage', handleStorageChange);
     }, [tenant, safeTenant.id]);
 
+    // 🔥 LIVE PREVIEW GENERATOR (UX DELIGHTER) 🔥
+    const previewMessage = useMemo(() => {
+        const tone = formData.aiConfig?.tone || 'professional';
+        const focus = formData.aiConfig?.focus || 'investment';
+        
+        let msg = "";
+        
+        if (tone === 'friendly') {
+            msg = "Dạ chào anh/chị! Em là trợ lý ảo của Advisor Pro đây ạ. ";
+            if (focus === 'investment') msg += "Em vừa check thấy dự án này đang có dòng tiền cho thuê cực tốt (ROI ~8%), anh/chị xem qua bảng tính này nhé! 💸";
+            else if (focus === 'residence') msg += "Dự án này không gian xanh mát thích lắm ạ, có công viên rộng cho bé. Để em gửi ảnh thực tế anh/chị xem nha! 🌳";
+            else msg += "Anh/chị cần thông tin gì cứ ới em nha, em hỗ trợ 24/7 luôn ạ! 😊";
+        } else if (tone === 'data_driven') {
+            msg = "Chào quý khách. Dựa trên dữ liệu thị trường Q1/2024: ";
+            if (focus === 'investment') msg += "Biên độ tăng giá dự kiến là 12%/năm. Yield cho thuê đạt 5.5%. Đây là bài toán đòn bẩy tài chính tối ưu: [Bảng Tính]";
+            else if (focus === 'residence') msg += "Mật độ xây dựng chỉ 28%. Chỉ số không khí (AQI) khu vực này tốt nhất TP.HCM. Hệ thống tiện ích đạt chuẩn 5 sao.";
+            else msg += "Dự án đang có mức giá cạnh tranh nhất khu vực (thấp hơn 15% so với đối thủ).";
+        } else {
+            // Professional
+            msg = "Kính chào quý khách. Tôi là trợ lý ảo chuyên trách dự án này. ";
+            if (focus === 'investment') msg += "Về tiềm năng đầu tư, dự án sở hữu pháp lý hoàn chỉnh và vị trí chiến lược đón đầu hạ tầng. Mời quý khách xem phân tích chi tiết.";
+            else if (focus === 'residence') msg += "Đây là lựa chọn an cư lý tưởng với hệ thống an ninh đa lớp và trường học quốc tế ngay nội khu.";
+            else msg += "Tôi có thể hỗ trợ quý khách thông tin về Bảng giá, Pháp lý và Chính sách bán hàng mới nhất.";
+        }
+        return msg;
+    }, [formData.aiConfig]);
+
     // 4. HANDLERS
     const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
         setToast({ show: true, message, type });
@@ -121,6 +155,17 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
         }, 600);
     };
 
+    // SYSTEM RESET HANDLER (SECURE)
+    const confirmSystemReset = () => {
+        if (resetInput !== 'DELETE') return;
+        setIsResetting(true);
+        setTimeout(() => {
+            localStorage.clear(); // Wipe everything
+            dataService.initializeMarketData(); // Re-seed initial data
+            window.location.reload(); // Force reload to apply fresh state
+        }, 1500);
+    };
+
     const handleProjectToggle = (projectId: string) => {
         const currentProjects = Array.isArray(formData.assignedProjects) ? formData.assignedProjects : [];
         const updated = currentProjects.includes(projectId) 
@@ -129,15 +174,55 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
         setFormData(prev => ({ ...prev, assignedProjects: updated }));
     };
 
+    // 🔥 HOTFIX: Safe Image Compressor to prevent LocalStorage Quota Exceeded
+    // Resolves "LocalStorage Quota Exceeded" by resizing and compressing
     const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            try {
-                const url = URL.createObjectURL(file);
-                setFormData(prev => ({ ...prev, avatar: url }));
-            } catch (err) {
-                console.error("Avatar upload error:", err);
+            // Hard Limit 10MB to be safe for memory processing, but compress to ~50kb
+            if (file.size > 10 * 1024 * 1024) {
+                showToast("Ảnh quá lớn! Vui lòng chọn ảnh dưới 10MB.", "error");
+                return;
             }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Create Canvas for Compression
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Max dimensions (Square for avatar)
+                    const MAX_WIDTH = 300;
+                    const MAX_HEIGHT = 300;
+                    let width = img.width;
+                    let height = img.height;
+
+                    // Calculate new dimensions (Cover logic)
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx?.drawImage(img, 0, 0, width, height);
+
+                    // Compress to JPEG 0.7 quality (Result typically < 50KB)
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                    setFormData(prev => ({ ...prev, avatar: dataUrl }));
+                };
+                img.src = event.target?.result as string;
+            };
+            reader.readAsDataURL(file);
         }
     };
 
@@ -250,7 +335,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
         // Simulate Bank Verification
         setTimeout(() => {
             if (paymentForm.number.length >= 4) {
-                setCardLast4(paymentForm.number.slice(-4));
+                setCardLast4(paymentForm.number.replace(/\s/g, '').slice(-4));
             } else {
                 setCardLast4('8888'); // Fallback mock
             }
@@ -269,12 +354,17 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
         return val.replace(/\D/g, '').replace(/(.{2})/, '$1/').slice(0, 5);
     };
 
+    const handleCopyLink = () => {
+        navigator.clipboard.writeText(window.location.href);
+        showToast("Đã sao chép link trang hồ sơ!", <Copy size={16}/>);
+    };
+
     // 5. RENDER HELPERS
     const isActive = (id: string) => activeTab === id;
     const tabClass = (id: string) => `flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${isActive(id) ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`;
 
     return (
-        <div className="h-full w-full flex flex-col bg-slate-50">
+        <div className="h-full w-full flex flex-col bg-slate-50 relative">
             
             {/* Header */}
             <div className="flex-shrink-0 z-10 bg-[#F8FAFC]/95 backdrop-blur-sm border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
@@ -304,7 +394,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
                             <Building size={16}/> <span className="whitespace-nowrap">Dự Án</span>
                         </button>
                         <button onClick={() => setActiveTab('billing')} className={tabClass('billing')}>
-                            <CreditCard size={16}/> <span className="whitespace-nowrap">Gói Cước</span>
+                            <CreditCard size={16}/> <span className="whitespace-nowrap">Hệ Thống</span>
                         </button>
                     </div>
 
@@ -312,7 +402,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
                     {activeTab === 'profile' && (
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-8 animate-in fade-in">
                             <div className="md:col-span-4">
-                                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm text-center">
+                                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm text-center sticky top-4">
                                     {/* Avatar Upload Section */}
                                     <label className="relative inline-block mb-4 cursor-pointer group">
                                         <img 
@@ -334,9 +424,12 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
                                         {safeTenant.type === 'agency' ? 'Sàn BĐS' : 'Môi giới tự do'}
                                     </p>
 
-                                    <div className="mt-6 pt-6 border-t border-slate-100">
+                                    <div className="mt-6 pt-6 border-t border-slate-100 space-y-2">
                                         <button onClick={onNavigateToProfile} className="w-full flex items-center justify-center gap-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl">
                                             <ExternalLink size={14} /> Xem trang công khai (Demo)
+                                        </button>
+                                        <button onClick={handleCopyLink} className="w-full flex items-center justify-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors p-3 bg-slate-50 hover:bg-slate-100 rounded-xl">
+                                            <Copy size={14} /> Copy Link Hồ Sơ
                                         </button>
                                     </div>
                                 </div>
@@ -372,7 +465,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
                                 </div>
 
                                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                                    <h3 className="font-bold text-slate-900 flex items-center gap-2"><MessageSquare size={18} className="text-indigo-600"/> Cấu hình AI & Lời chào</h3>
+                                    <h3 className="font-bold text-slate-900 flex items-center gap-2"><BrainCircuit size={18} className="text-indigo-600"/> Cấu hình AI</h3>
                                     
                                     {/* AI PERSONALITY SETTINGS */}
                                     <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
@@ -406,13 +499,26 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
                                         </div>
                                     </div>
 
+                                    {/* 🔥 LIVE PREVIEW BOX - B2B2C CONNECTION POINT 🔥 */}
+                                    <div className="mt-4 p-4 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border border-indigo-100 relative group transition-all">
+                                        <div className="absolute top-0 right-0 p-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                                            <Sparkles size={14} className="text-indigo-400 fill-indigo-400"/>
+                                        </div>
+                                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-2 block flex items-center gap-1">
+                                            <MessageCircle size={10}/> Mô phỏng cách AI trả lời khách
+                                        </label>
+                                        <p className="text-sm text-slate-700 italic leading-relaxed font-medium">
+                                            "{previewMessage}"
+                                        </p>
+                                    </div>
+
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Lời chào mở đầu</label>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Lời chào mở đầu (Tùy chỉnh)</label>
                                         <textarea 
                                             value={formData.welcomeMessage || ''}
                                             onChange={e => setFormData({...formData, welcomeMessage: e.target.value})}
                                             className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 h-24 resize-none focus:bg-white focus:border-indigo-500 outline-none transition-colors text-sm"
-                                            placeholder="VD: Chào anh/chị, em là trợ lý ảo chuyên tư vấn BĐS..."
+                                            placeholder="Ghi đè lời chào mặc định..."
                                         />
                                     </div>
                                 </div>
@@ -494,6 +600,27 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
                     {/* Billing View - UPGRADED WITH REAL DATA */}
                     {activeTab === 'billing' && (
                         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+                            {/* SYSTEM RESET ZONE (DANGER) */}
+                            <div className="bg-red-50 border border-red-200 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div className="flex items-start gap-3">
+                                    <div className="p-2 bg-white rounded-xl border border-red-100 shadow-sm text-red-600">
+                                        <AlertTriangle size={24}/>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-lg font-bold text-red-900">Vùng Nguy Hiểm (Reset System)</h4>
+                                        <p className="text-sm text-red-700 mt-1 max-w-md">
+                                            Xóa toàn bộ dữ liệu (Khách hàng, Lịch hẹn, Cài đặt) và đưa hệ thống về trạng thái mặc định ban đầu. Hành động này không thể hoàn tác.
+                                        </p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => { setShowResetConfirm(true); setResetInput(''); }}
+                                    className="px-6 py-3 bg-white border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-600 hover:text-white transition-all shadow-sm flex items-center gap-2 whitespace-nowrap active:scale-95"
+                                >
+                                    <RefreshCcw size={18}/> Khôi Phục Gốc
+                                </button>
+                            </div>
+
                             {/* Current Plan Card */}
                             <div className="bg-slate-900 text-white p-8 rounded-3xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden border border-slate-800">
                                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-[80px] opacity-20 pointer-events-none"></div>
@@ -748,6 +875,48 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ tenant, onUpdate, onNavig
                                 {isSavingCard ? 'Đang xác thực...' : 'Lưu Thẻ Mới'}
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* DESTRUCTIVE RESET CONFIRMATION MODAL */}
+            {showResetConfirm && (
+                <div className="fixed inset-0 z-[150] bg-red-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative overflow-hidden text-center">
+                        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <AlertTriangle size={40} className="text-red-600 animate-pulse"/>
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-900 mb-2">Vùng Nguy Hiểm!</h3>
+                        <p className="text-slate-600 text-sm mb-6 leading-relaxed">
+                            Hành động này sẽ <strong>xóa vĩnh viễn</strong> toàn bộ dữ liệu của bạn gồm: Khách hàng, Lịch sử chat, và Cấu hình. Không thể khôi phục.
+                        </p>
+                        
+                        <div className="text-left mb-6">
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-1 block mb-2">Nhập "DELETE" để xác nhận</label>
+                            <input 
+                                className="w-full p-3 bg-slate-50 border border-red-200 rounded-xl font-bold text-sm outline-none focus:border-red-500 focus:ring-4 focus:ring-red-50 transition-all text-center placeholder:font-normal"
+                                placeholder="Gõ chữ DELETE..."
+                                value={resetInput}
+                                onChange={e => setResetInput(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => { setShowResetConfirm(false); setResetInput(''); }}
+                                className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
+                            >
+                                Hủy bỏ
+                            </button>
+                            <button 
+                                onClick={confirmSystemReset}
+                                disabled={resetInput !== 'DELETE' || isResetting}
+                                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {isResetting ? <Loader2 size={16} className="animate-spin"/> : <Trash2 size={16}/>}
+                                {isResetting ? 'Đang xóa...' : 'Xóa Vĩnh Viễn'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
